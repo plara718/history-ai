@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, Typography, Container, Stack, Paper, Chip, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
-import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, Info } from 'lucide-react';
-import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants'; // ★DIFFICULTY_DESCRIPTIONSを追加
+import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle } from 'lucide-react';
+import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS } from '../lib/constants';
 
 const StartScreen = ({ 
   activeSession, viewingSession, isDailyLimitReached,
@@ -20,12 +20,10 @@ const StartScreen = ({
   const isViewingCompleted = historyMeta && historyMeta[viewingSession]?.completed;
   const isViewingExists = historyMeta && historyMeta[viewingSession]?.exists;
 
-  // 現在の難易度の説明を取得
-  const difficultyInfo = DIFFICULTY_DESCRIPTIONS[learningMode][difficulty];
-
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 8 }}>
       
+      {/* ユーザー情報ヘッダー */}
       <Box mb={3} display="flex" justifyContent="space-between" alignItems="center">
           <Box>
               <Typography variant="caption" fontWeight="bold" color="text.secondary">ログイン中</Typography>
@@ -49,6 +47,7 @@ const StartScreen = ({
           </Stack>
       </Box>
 
+      {/* セッション切り替えタブ */}
       <Stack direction="row" spacing={1} mb={4} justifyContent="center">
         {[1, 2, 3].map((num) => {
            const meta = historyMeta[num] || {};
@@ -77,6 +76,7 @@ const StartScreen = ({
 
       <Paper elevation={0} sx={{ p: 3, borderRadius: 4, mb: 3, bgcolor: 'white', border: '1px solid', borderColor: 'slate.200' }}>
         
+        {/* モード設定 (データ未生成時のみ表示) */}
         {!isViewingExists && (
           <Stack spacing={3} mb={3}>
             <ToggleButtonGroup
@@ -127,34 +127,31 @@ const StartScreen = ({
                     />
                 ))}
             </Stack>
-
-            {/* ★ここが復活した「難易度説明エリア」です */}
-            <Box 
-                sx={{ 
-                    p: 2, 
-                    bgcolor: 'slate.50', 
-                    borderRadius: 2, 
-                    border: '1px dashed', 
-                    borderColor: 'slate.300',
-                    display: 'flex',
-                    gap: 1.5,
-                    alignItems: 'start'
-                }}
-            >
-                <Info size={18} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                <Typography variant="caption" color="text.secondary" fontWeight="medium" lineHeight={1.6}>
-                    {difficultyInfo.label}
-                </Typography>
-            </Box>
-
           </Stack>
         )}
 
+        {/* アクションボタンエリア */}
         <Stack spacing={2}>
             {isViewingExists ? (
                 isViewingCompleted ? (
-                    <Button fullWidth disabled variant="contained" color="inherit" sx={{ borderRadius: 3, py: 1.5 }}>
-                        この学習は完了しました
+                    // ★修正: 完了済みの場合、結果確認ボタンを表示
+                    <Button 
+                        fullWidth 
+                        variant="outlined" 
+                        color="inherit" 
+                        size="large"
+                        onClick={onResume}
+                        startIcon={<CheckCircle size={20} className="text-emerald-500" />}
+                        sx={{ 
+                            borderRadius: 3, 
+                            py: 2, 
+                            fontWeight: 'bold', 
+                            color: 'slate.700',
+                            borderColor: 'slate.300',
+                            bgcolor: 'slate.50'
+                        }}
+                    >
+                        学習結果・講義を見直す
                     </Button>
                 ) : (
                     <Button 
@@ -206,6 +203,7 @@ const StartScreen = ({
         </Stack>
       </Paper>
 
+      {/* 弱点復習ボタン */}
       <Button 
           fullWidth 
           variant="outlined" 

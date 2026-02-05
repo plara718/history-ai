@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { callAI } from '../lib/api';
-import { doc, setDoc, getDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { APP_ID, DIFFICULTY_DESCRIPTIONS } from '../lib/constants'; // ★定義をインポート
+import { callAI } from '../lib/api';
+import { APP_ID, DIFFICULTY_DESCRIPTIONS } from '../lib/constants';
 import { getTodayString } from '../lib/utils';
 
 export const useLessonGenerator = (apiKey, userId) => {
@@ -10,8 +10,8 @@ export const useLessonGenerator = (apiKey, userId) => {
   const [genError, setGenError] = useState(null);
 
   const generateDailyLesson = async (learningMode, difficulty, selectedUnit, sessionNum) => {
-    if (!userId || !apiKey) {
-      setGenError("認証情報が不足しています");
+    if (!apiKey || !userId) {
+      setGenError("APIキーまたはユーザーIDが不足しています");
       return null;
     }
 
@@ -19,55 +19,105 @@ export const useLessonGenerator = (apiKey, userId) => {
     setGenError(null);
 
     try {
-      // 1. 管理者からの介入指示があれば取得 (復旧)
+      // 1. 管理者からの介入指示を取得
       let intervention = null;
       try {
           const iSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'interventions', userId));
           if(iSnap.exists()) intervention = iSnap.data();
-      } catch(e) { console.warn(e); }
+      } catch(e) { console.warn("介入データ取得失敗", e); }
 
-      // 2. 過去の履歴を参照 (簡易)
-      // 直近の学習内容を取得して、重複を避ける指示などを追加可能だが、今回はシンプルに
+      const diffSetting = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty] || DIFFICULTY_DESCRIPTIONS.general.standard;
+      const targetUnit = learningMode === 'school' ? selectedUnit : "AIが選定する入試頻出テーマ";
 
-      // 3. プロンプト構築
-      // ★ここが重要: 難易度定義からAIへの指示を取り出す
-      const difficultyInstruction = DIFFICULTY_DESCRIPTIONS[learningMode][difficulty].ai;
-      
-      const prompt = `
-      あなたは日本史のプロ講師です。以下の条件で学習コンテンツをJSON形式で生成してください。
+      // -------------------------------------------------------
+      // ★ Step 1: 授業プランの策定
+      // -------------------------------------------------------
+      const planPrompt = `
+      あなたは日本史のプロ講師です。以下の設定で、1回分の授業テーマ（タイトル）と構成案を決定してください。
 
-      【学習設定】
-      - モード: ${learningMode === 'school' ? '定期テスト対策（教科書準拠）' : '大学入試対策'}
-      - 単元: ${selectedUnit}
-      - 難易度指示: ${difficultyInstruction}
-      
-      ${intervention ? `【最優先指示（介入）】\n指導テーマ: ${intervention.focus}\n興味付け: ${intervention.interest}\nこの指示を必ず反映してください。` : ''}
+      【設定】
+      - 単元: ${targetUnit}
+      - 難易度: ${diffSetting.label}
+      - ターゲット: ${learningMode === 'school' ? '定期テスト対策' : '大学入試対策'}
 
-      【生成要件】
-      1. theme: 今日の授業のタイトル（キャッチーに）
-      2. lecture: 講義テキスト（1000文字程度。Markdown形式。重要な用語は太字**term**にする）
-      3. essential_terms: 講義に出てきた重要語句リスト（5つ。{term: "語句", def: "短い定義"}の配列）
-      4. questions: 以下の問題を含む配列
-         - true_false: 正誤問題 3問 ({q: "問題文", options: ["選択肢A", "選択肢B"...], correct: 0, exp: "解説"})
-         - sort: 並び替え問題 1問 ({q: "問題文", items: ["A", "B", "C", "D"], correct_order: [2,0,1,3], exp: "解説"})
-         - essay: 記述問題 1問 ({q: "思考力を問う問題", model: "模範解答", exp: "採点基準と解説", hint: "ヒント"})
-      5. column: "今日の深掘りコラム"（教科書には載っていない面白い裏話や現代とのつながり）
+      ${intervention ? `【★最優先指示（管理者介入）】\n指導テーマ: ${intervention.focus}\nこの指示内容をテーマ選定に必ず反映させてください。` : ''}
 
-      JSONのみを出力してください。
+      出力は以下のJSON形式のみ返してください:
+      {
+        "theme": "授業のタイトル（例：地租改正と農民一揆）",
+        "key_concepts": ["重要な概念1", "重要な概念2", "重要な概念3"]
+      }
       `;
 
-      // 4. AI生成
-      const data = await callAI("授業生成", prompt, apiKey);
-      
-      if (!data || !data.lecture) throw new Error("AI生成データが不正です");
+      const planRes = await callAI("授業プラン作成", planPrompt, apiKey);
+      if (!planRes || !planRes.theme) throw new Error("プラン生成に失敗しました");
 
-      // 5. データ保存
-      const today = getTodayString();
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+      // -------------------------------------------------------
+      // ★ Step 2: ドラフトコンテンツの生成 (執筆)
+      // -------------------------------------------------------
+      const draftPrompt = `
+      あなたは日本史のプロ講師です。
+      テーマ「${planRes.theme}」について、授業コンテンツを執筆してください。
+
+      【構成要素への指示】
+      1. **概念**: ${planRes.key_concepts.join(', ')} を解説に含めること。
+      2. **講義**: ${diffSetting.ai} (1000文字程度)
+      3. **問題**: 
+         - 正誤問題(true_false): 3問 ({q, options, correct, exp})
+         - 整序問題(sort): 2問 ({q, items, correct_order, exp})
+         - 記述問題(essay): 1問 ({q, model, hint})
+      4. **用語**: 重要語句(essential_terms) 5つ。
+      5. **コラム**: 興味を引く歴史の裏話(column)。
+
+      ${intervention ? `【★最優先指示】\n興味付け・雑学ネタ: ${intervention.interest}\nこのネタをコラムまたは講義の導入に使用してください。` : ''}
+
+      出力はJSON形式のみ:
+      { "theme": "${planRes.theme}", "lecture": "...", "essential_terms": [...], "true_false": [...], "sort": [...], "essay": {...}, "column": "..." }
+      `;
+
+      const draftRes = await callAI("コンテンツ執筆", draftPrompt, apiKey);
+      if (!draftRes || !draftRes.lecture) throw new Error("ドラフト生成に失敗しました");
+
+      // -------------------------------------------------------
+      // ★ Step 3: 品質チェックとリファイン (推敲・検品)
+      // -------------------------------------------------------
+      // 模範解答、ヒント、解説も含めた厳格な品質チェックを行う
+      const reviewPrompt = `
+      あなたは「最高品質の教材を作る鬼の編集者」です。
+      以下はAIが生成した日本史の教材ドラフトです。
+      この内容を以下の基準で厳しくチェックし、不備があれば修正した完全なJSONを出力してください。
+
+      【品質チェック基準】
+      1. **正解の整合性**: 
+         - 選択問題の正解インデックスは合っているか？
+         - 整序問題の並び順は史実として正しいか？
       
-      const saveData = {
+      2. **解説・解答の質 (最重要)**: 
+         - **解説(exp)**: 正解の理由だけでなく、誤答の理由や、背景にある因果関係まで深く説明できているか？「〇〇だから」のような浅い解説は修正すること。
+         - **模範解答(model)**: 記述問題の解答は、講義内容を踏まえた論理的かつ正確な文章になっているか？
+         - **ヒント(hint)**: 答えをそのまま言うのではなく、学生の思考を促す適切な助言になっているか？
+
+      3. **難易度**: 「${diffSetting.label}」という設定に対し適切か？
+      4. **不適切な内容**: 教育上不適切な表現や、明らかな史実誤認はないか？
+
+      【ドラフトデータ】
+      ${JSON.stringify(draftRes)}
+
+      問題なければドラフトをそのまま、修正が必要なら修正後のJSONを出力してください。
+      JSON以外の解説文は不要です。
+      `;
+
+      const finalRes = await callAI("品質チェック", reviewPrompt, apiKey);
+      
+      // もしチェック工程でJSONが壊れた場合は、Step 2のドラフトをバックアップとして採用する
+      const contentRes = (finalRes && finalRes.lecture) ? finalRes : draftRes;
+
+      // -------------------------------------------------------
+      // 保存処理
+      // -------------------------------------------------------
+      const lessonData = {
+        content: contentRes,
         timestamp: new Date().toISOString(),
-        content: data,
         learningMode,
         difficulty,
         completed: false,
@@ -75,28 +125,39 @@ export const useLessonGenerator = (apiKey, userId) => {
         qIndex: 0
       };
 
-      await setDoc(docRef, saveData);
+      const today = getTodayString();
+      const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+      await setDoc(docRef, lessonData);
 
-      // 用語帳への保存 (非同期で実行)
-      if (data.essential_terms) {
-          data.essential_terms.forEach(term => {
-              const termRef = doc(collection(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary'));
-              // 単純化のため上書き保存せず、新規追加または既存更新のロジックが必要だが、
-              // ここでは簡易的に「保存」のみ実装（本格的にはバッチ処理推奨）
-              // setDoc(termRef, { ...term, addedAt: new Date().toISOString() }).catch(console.error);
-          });
+      // 用語帳への保存
+      if (contentRes.essential_terms) {
+        Promise.all(contentRes.essential_terms.map(async (term) => {
+            try {
+                const termRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary', term.term);
+                await setDoc(termRef, { 
+                    term: term.term, 
+                    def: term.def, 
+                    addedAt: new Date().toISOString(),
+                    count: 1 
+                }, { merge: true });
+            } catch(e) { console.error("用語保存エラー", e); }
+        }));
       }
 
-      return data;
+      return lessonData;
 
     } catch (e) {
       console.error(e);
-      setGenError("生成エラー: " + e.message);
+      setGenError(e.message || "生成中にエラーが発生しました");
       throw e;
     } finally {
       setIsProcessing(false);
     }
   };
 
-  return { generateDailyLesson, isProcessing, genError };
+  return {
+    generateDailyLesson,
+    isProcessing,
+    genError
+  };
 };

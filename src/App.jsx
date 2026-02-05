@@ -4,19 +4,19 @@ import {
   Paper, BottomNavigation, BottomNavigationAction, Box, Button
 } from '@mui/material';
 import { collection, query, getDocs, limit, orderBy, doc, getDoc, setDoc, runTransaction } from 'firebase/firestore'; 
-import { signOut } from 'firebase/auth'; // ログアウト用
+import { signOut } from 'firebase/auth'; 
 import { db, auth } from './lib/firebase';
 import { callAI } from './lib/api';
 import { getTodayString, scrollToTop, getFlattenedQuestions } from './lib/utils';
 import { Brain, BookOpen, CheckCircle } from 'lucide-react';
 
 // Hooks
-import useAuthUser from './hooks/useAuthUser'; // ★デフォルトインポートに変更
+import useAuthUser from './hooks/useAuthUser';
 import { useStudySession } from './hooks/useStudySession';
 import { useLessonGenerator } from './hooks/useLessonGenerator';
 
 // Screens
-import LoginScreen from './screens/LoginScreen'; // ★LoginScreenを使用
+import LoginScreen from './screens/LoginScreen'; 
 import StartScreen from './screens/StartScreen';
 import LectureScreen from './screens/LectureScreen';
 import QuestionsScreen from './screens/QuestionsScreen';
@@ -52,7 +52,7 @@ const theme = createTheme({
 
 const App = () => {
   // --- 1. 認証管理 ---
-  const { user, loading: authLoading } = useAuthUser(); // ★シンプルになったフックを使用
+  const { user, loading: authLoading } = useAuthUser(); 
   const [activeTab, setActiveTab] = useState('train');
   
   // --- 2. 学習設定 ---
@@ -70,11 +70,14 @@ const App = () => {
   const [simplifiedLecture, setSimplifiedLecture] = useState(null);
   const [regenCount, setRegenCount] = useState(0);
 
-  // --- 4. 復習モード用 ---
+  // --- 4. 復習モード & 履歴詳細用 ---
   const [reviewQuestions, setReviewQuestions] = useState([]);
   const [reviewQIndex, setReviewQIndex] = useState(0);
   const [reviewResult, setReviewResult] = useState(null);
   const [reviewUserAnswer, setReviewUserAnswer] = useState(null);
+  
+  // ★追加: 履歴詳細表示用のステート
+  const [selectedHistoryLog, setSelectedHistoryLog] = useState(null);
 
   // --- Hooks ---
   const session = useStudySession(user?.uid);
@@ -107,11 +110,9 @@ const App = () => {
 
   // --- アクションハンドラー ---
 
-  // ★ログアウト処理 (App内で定義)
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      // 状態リセットのためリロード推奨
       window.location.reload();
     } catch (error) {
       console.error("Logout failed", error);
@@ -386,7 +387,7 @@ const App = () => {
       return <AdminDashboard />;
   }
   
-  if (!user) return <ThemeProvider theme={theme}><CssBaseline /><LoginScreen /></ThemeProvider>; // ★AuthScreenからLoginScreenに変更
+  if (!user) return <ThemeProvider theme={theme}><CssBaseline /><LoginScreen /></ThemeProvider>;
 
   return (
     <ThemeProvider theme={theme}>
@@ -395,12 +396,42 @@ const App = () => {
         
         {activeTab === 'train' && renderTrainingTab()}
         {activeTab === 'library' && <VocabularyLibrary userId={user.uid} />}
-        {activeTab === 'log' && <LogScreen userId={user.uid} heatmapStats={{}} />}
+        
+        {/* ★変更: 履歴詳細表示の分岐 */}
+        {activeTab === 'log' && (
+            selectedHistoryLog ? (
+                <SummaryScreen
+                    dailyData={selectedHistoryLog.content}
+                    userAnswers={selectedHistoryLog.userAnswers || {}}
+                    essayGrading={selectedHistoryLog.essayGrading}
+                    activeSession={selectedHistoryLog.content.theme} // セッション番号の代わりにテーマ名等を表示
+                    isReadOnly={true}
+                    reflection={selectedHistoryLog.reflection || ""}
+                    setReflection={() => {}}
+                    saveReflection={() => {}}
+                    copyToClipboard={() => {}}
+                    startNextSession={() => {
+                        setSelectedHistoryLog(null); // 「ホームに戻る」ボタンで一覧へ戻る
+                        scrollToTop();
+                    }}
+                />
+            ) : (
+                <LogScreen 
+                    userId={user.uid} 
+                    heatmapStats={{}} 
+                    onSelectSession={(log) => {
+                        setSelectedHistoryLog(log);
+                        scrollToTop();
+                    }}
+                />
+            )
+        )}
 
         <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} user={user} />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-        {step === 'start' && (
+        {/* 履歴詳細表示中はタブバーを隠す、またはそのまま表示でも可（ここではstart画面時のみ表示する仕様を踏襲） */}
+        {step === 'start' && !selectedHistoryLog && (
           <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000 }} elevation={3}>
             <BottomNavigation showLabels value={activeTab} onChange={(e, n) => {setActiveTab(n); scrollToTop();}}>
               <BottomNavigationAction label="学習" value="train" icon={<Brain />} />

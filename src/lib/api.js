@@ -1,27 +1,34 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './firebase';
+import { APP_ID } from './constants';
 
 export const callAI = async (actionName, prompt, apiKey) => {
-  if (!apiKey) throw new Error("APIキーが設定されていません。設定画面でキーを入力してください。");
+  if (!apiKey) throw new Error("APIキーが設定されていません。");
 
-  // モード判定
-  const isTestMode = localStorage.getItem('gemini_test_mode') === 'true';
+  // 1. Firestoreからグローバル設定（動作モード）を直接取得
+  let appMode = 'production';
+  try {
+    const settingsSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
+    if (settingsSnap.exists()) {
+      appMode = settingsSnap.data().appMode || 'production';
+    }
+  } catch (e) {
+    console.warn("[AI] 設定取得失敗、デフォルト(production)を使用します", e);
+  }
 
-  // ★大修正: 
-  // 本番モード(false) → "gemma-3-27b-it" (1日14,400回使える・賢い・安定)
-  // テストモード(true) → "gemini-1.5-flash" (1日1,500回使える・バックアップ用)
-  // ※これで、スイッチがどっちに入っていても「制限エラー」で止まることはほぼ無くなります。
-  const modelName = isTestMode ? "gemini-1.5-flash" : "gemma-3-27b-it";
+  // 2. モードに応じた最新モデルの割り当て
+  // 本番: Gemini 2.0 Flash / テスト: Gemma 3
+  const modelName = appMode === 'production' ? "gemini-2.5-flash" : "gemma-3-27b-it";
   
-  // どちらも制限に余裕があるため、リトライは「2回」有効にして安定性を高めます
   const MAX_RETRIES = 2; 
-
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: modelName });
 
   let attempt = 0;
   let lastError = null;
 
-  console.log(`[AI Config] Mode: ${isTestMode ? 'TEST(1.5-Flash)' : 'PROD(Gemma-3)'}, Model: ${modelName}`);
+  console.log(`[AI Config] Mode: ${appMode.toUpperCase()}, Model: ${modelName}`);
 
   while (attempt <= MAX_RETRIES) {
     try {
@@ -54,12 +61,7 @@ export const callAI = async (actionName, prompt, apiKey) => {
       }
 
       if (!data || typeof data !== 'object') {
-          throw new Error("生成データが無効（nullまたは非オブジェクト）です。");
-      }
-
-      // 必須データのチェック
-      if (actionName.includes("作問") || actionName.includes("テスト")) {
-          if (!data.true_false && !data.sort && !data.essay) throw new Error("問題データが含まれていません。");
+          throw new Error("生成データが無効です。");
       }
 
       console.log(`[AI] ${actionName}: Success`);
@@ -70,20 +72,14 @@ export const callAI = async (actionName, prompt, apiKey) => {
       lastError = e;
       const errorMsg = e.message || "";
 
-      // 404エラー（モデル名違い）のハンドリング
+      // 404エラー（モデル名間違い）
       if (errorMsg.includes("404") && errorMsg.includes("not found")) {
-          console.error(`[AI] Model Not Found: ${modelName}`);
-          // GemmaのIDが環境によって違う場合への案内
-          if (!isTestMode) { // 本番(Gemma)でエラーが出た場合
-             throw new Error(`モデル(${modelName})が見つかりません。APIキーが正しいか確認してください。(ヒント: "gemma-3-27b" を試す必要があるかもしれません)`);
-          }
-          throw new Error(`設定されたAIモデル(${modelName})が見つかりません。`);
+          throw new Error(`モデル(${modelName})が見つかりません。APIキーまたはモデルIDを確認してください。`);
       }
 
       // 制限検知 (429)
-      if (errorMsg.includes("429") || errorMsg.includes("Quota exceeded") || errorMsg.includes("Resource has been exhausted")) {
-          console.error(`[AI] Rate Limit Exceeded.`);
-          throw new Error("⚠️ AIの利用制限（アクセス集中）にかかりました。少し時間を置いてください。");
+      if (errorMsg.includes("429") || errorMsg.includes("Quota exceeded")) {
+          throw new Error("⚠️ AIの利用制限にかかりました。少し時間を置いてください。");
       }
 
       attempt++;

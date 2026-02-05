@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Container, Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './lib/firebase';
-import { Toaster } from 'react-hot-toast';
 
 // フックのインポート
 import { useAuthUser } from './hooks/useAuthUser';
@@ -23,7 +22,7 @@ import AdminDashboard from './screens/AdminDashboard';
 import SmartLoader from './components/SmartLoader';
 import NavButton from './components/NavButton';
 import SettingsModal from './components/SettingsModal';
-import Toast from './components/Toast';
+import Toast from './components/Toast'; // 内部のToastコンポーネントを使用
 
 // 管理者UID (Firebaseルールと一致させる)
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
@@ -80,10 +79,9 @@ const App = () => {
   // 授業生成ボタンを押した時の処理
   const handleGenerate = async () => {
     try {
-      const data = await generateDailyLesson(learningMode, difficulty, selectedUnit, activeSession);
-      // 生成されたデータを即座に反映させるため、現在のセッションをリロードする等の処理が必要だが、
-      // useStudySession側でFirestoreを監視していれば自動反映される。
-      // ここでは念のためUIフィードバックを行う。
+      // 最新の関数名 generateDailyLesson を使用
+      await generateDailyLesson(learningMode, difficulty, selectedUnit, activeSession);
+      
       setToast({ message: "授業の準備ができました！", type: "success" });
     } catch (error) {
       console.error(error);
@@ -98,7 +96,9 @@ const App = () => {
 
   // --- 6. レンダリング分岐 ---
 
-  if (authLoading) return <SmartLoader message="認証情報を確認中..." />;
+  if (authLoading) {
+    return <SmartLoader message="認証情報を確認中..." />;
+  }
 
   // 管理者画面へのアクセス
   if (currentPath === '/admin') {
@@ -126,7 +126,9 @@ const App = () => {
   // メイン画面構成
   const renderContent = () => {
     // データ読み込み中
-    if (isProcessing) return <SmartLoader message="AI講師が授業を準備しています..." />;
+    if (isProcessing) {
+      return <SmartLoader message="AI講師が授業を準備しています..." />;
+    }
     
     // 現在のセッションのデータ取得
     const sessionData = currentData;
@@ -145,7 +147,7 @@ const App = () => {
           setSelectedUnit={setSelectedUnit}
           difficulty={difficulty}
           setDifficulty={setDifficulty}
-          generateDailyLesson={handleGenerate} // ★ここで新しい関数名を渡す
+          generateDailyLesson={handleGenerate} // 関数名を統一して渡す
           startWeaknessReview={handleWeaknessReview}
           isProcessing={isProcessing}
           historyMeta={historyMeta}
@@ -171,13 +173,6 @@ const App = () => {
     }
 
     // 学習中（講義 -> 問題 -> 復習）
-    // ※ ここでは簡易的に「講義閲覧済みフラグ」などを内部ステートで持たず、
-    //    コンポーネントの切り替えロジックが必要ですが、
-    //    今回は LectureScreen 内で完了したら QuestionsScreen に遷移するフローを想定。
-    //    Firestoreに `progress: 'lecture' | 'questions'` のような状態を持つのが理想ですが、
-    //    ここではシンプルに「講義画面」を表示し、講義画面内のボタンで「問題画面」へ遷移するUIとします。
-    //    (実装の簡略化のため、常にLectureScreenを表示し、内部でステップ管理する構成を推奨)
-    
     return (
       <SessionManager 
         data={sessionData} 
@@ -200,7 +195,7 @@ const App = () => {
           user={user}
         />
         
-        {/* トースト通知 */}
+        {/* トースト通知 (自作コンポーネント) */}
         {toast && (
           <Toast 
             message={toast.message} 

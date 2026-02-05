@@ -1,106 +1,112 @@
-import React from 'react';
-import { Box, Button, Typography, Container, Paper, Stack, Divider } from '@mui/material';
-import { Brain, Sparkles, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Box, Button, Typography, Container, Paper, TextField, 
+  InputAdornment, IconButton
+} from '@mui/material';
+import { Brain, Eye, EyeOff, LogIn } from 'lucide-react';
 
-const AuthScreen = ({ onAuthenticate }) => {
+const AuthScreen = ({ onLogin }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    
+    setIsSubmitting(true);
+    try {
+      // 親から渡されたログイン関数を実行
+      await onLogin(email, password);
+    } catch (error) {
+      // エラー処理は完了（Toast表示済み）
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <Container maxWidth="xs" className="animate-fade-in">
-        
-        {/* メインカード */}
-        <Paper 
-          elevation={0} 
-          sx={{ 
-            p: 5, 
-            borderRadius: 5, 
-            bgcolor: 'white', 
-            border: '1px solid', 
-            borderColor: 'slate.200',
-            textAlign: 'center',
-            boxShadow: '0 10px 40px -10px rgba(0,0,0,0.08)'
-          }}
-        >
-          {/* アプリアイコン・ロゴ */}
-          <Box 
-            sx={{ 
-              width: 80, 
-              height: 80, 
-              bgcolor: 'indigo.50', 
-              color: 'indigo.600', 
-              borderRadius: '24px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              mx: 'auto', 
-              mb: 3 
-            }}
-          >
-            <Brain size={40} strokeWidth={2.5} />
-          </Box>
-
-          <Typography variant="h4" fontWeight="900" color="slate.900" gutterBottom letterSpacing="-0.02em">
+    <Container maxWidth="xs" sx={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          p: 4, 
+          width: '100%', 
+          borderRadius: 4, 
+          border: '1px solid', 
+          borderColor: 'grey.200',
+          textAlign: 'center'
+        }}
+      >
+        {/* アプリロゴ */}
+        <Box mb={4} display="flex" flexDirection="column" alignItems="center">
+          <Brain size={48} className="text-indigo-600 mb-2" />
+          <Typography variant="h5" component="h1" fontWeight="800" gutterBottom>
             日本史AI特訓
           </Typography>
-          
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 4, lineHeight: 1.8 }}>
-            最先端のAIが、あなたの学習ログを分析。<br/>
-            入試から定期テストまで、<br/>
-            <span className="font-bold text-indigo-600">最短ルート</span>で合格力を養成します。
+          <Typography variant="caption" color="text.secondary">
+            管理者または生徒アカウントでログイン
           </Typography>
+        </Box>
 
-          {/* 特徴リスト (簡易) */}
-          <Stack spacing={2} mb={5} sx={{ textAlign: 'left', px: 1 }}>
-            <FeatureItem icon={<Zap size={18} />} text="AIによる個別カリキュラム生成" />
-            <FeatureItem icon={<Sparkles size={18} />} text="記述問題の即時自動採点" />
-            <FeatureItem icon={<ShieldCheck size={18} />} text="苦手分野をピンポイント復習" />
-          </Stack>
+        {/* ログインフォーム */}
+        <form onSubmit={handleSubmit}>
+          <Box display="flex" flexDirection="column" gap={2.5}>
+            <TextField
+              label="メールアドレス"
+              variant="outlined"
+              fullWidth
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            
+            <TextField
+              label="パスワード"
+              variant="outlined"
+              fullWidth
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
 
-          <Divider sx={{ mb: 4 }} />
-
-          {/* 開始ボタン */}
-          <Button 
-            variant="contained" 
-            size="large" 
-            fullWidth 
-            onClick={onAuthenticate}
-            endIcon={<ArrowRight />}
-            sx={{ 
-              py: 2, 
-              borderRadius: 3, 
-              fontWeight: 'bold', 
-              fontSize: '1.1rem',
-              bgcolor: 'indigo.600',
-              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)',
-              '&:hover': { bgcolor: 'indigo.700', transform: 'translateY(-1px)' },
-              transition: 'all 0.2s'
-            }}
-          >
-            学習を始める
-          </Button>
-
-          <Typography variant="caption" display="block" color="text.disabled" mt={3}>
-            あなた専用の個別カリキュラムを準備します
-          </Typography>
-        </Paper>
-
-        {/* フッター */}
-        <Typography variant="caption" align="center" display="block" color="text.disabled" mt={4}>
+            <Button 
+              type="submit" 
+              variant="contained" 
+              size="large" 
+              fullWidth
+              disabled={isSubmitting}
+              sx={{ 
+                py: 1.5, 
+                borderRadius: 2, 
+                fontSize: '1rem', 
+                fontWeight: 'bold'
+              }}
+              startIcon={isSubmitting ? null : <LogIn />}
+            >
+              {isSubmitting ? 'ログイン中...' : 'ログイン'}
+            </Button>
+          </Box>
+        </form>
+        
+        <Typography variant="caption" display="block" color="text.disabled" mt={4}>
           © 2026 Japanese History AI Tutor
         </Typography>
-
-      </Container>
-    </div>
+      </Paper>
+    </Container>
   );
 };
-
-// 特徴リスト用パーツ
-const FeatureItem = ({ icon, text }) => (
-  <Stack direction="row" alignItems="center" spacing={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'slate.50' }}>
-    <Box sx={{ color: 'indigo.500', display: 'flex' }}>{icon}</Box>
-    <Typography variant="body2" fontWeight="bold" color="slate.700">
-      {text}
-    </Typography>
-  </Stack>
-);
 
 export default AuthScreen;

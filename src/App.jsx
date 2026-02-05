@@ -10,7 +10,6 @@ import { useLessonGenerator } from './hooks/useLessonGenerator';
 
 // 画面コンポーネントのインポート
 import AuthScreen from './screens/AuthScreen';
-import LoginScreen from './screens/LoginScreen';
 import StartScreen from './screens/StartScreen';
 import LectureScreen from './screens/LectureScreen';
 import QuestionsScreen from './screens/QuestionsScreen';
@@ -24,6 +23,7 @@ import NavButton from './components/NavButton';
 import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast'; 
 
+// 管理者UID (Firebaseルールと一致させる)
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
 
 const theme = createTheme({
@@ -44,22 +44,23 @@ const theme = createTheme({
 
 const App = () => {
   // --- 1. 認証管理 ---
-  const { user, loading: authLoading, handleLogin, handleLogout, handleGuestLogin } = useAuthUser();
+  // useAuthUserから handleLogin (メール/パスワード版) を受け取る
+  const { user, loading: authLoading, handleLogin, handleLogout } = useAuthUser();
   
   // --- 2. 状態管理 ---
-  const [learningMode, setLearningMode] = useState('general');
-  const [difficulty, setDifficulty] = useState('standard');
+  const [learningMode, setLearningMode] = useState('general'); // 'general' or 'school'
+  const [difficulty, setDifficulty] = useState('standard');    // 'easy', 'standard', 'hard'
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [toast, setToast] = useState(null); // { message, type }
   
-  // ★追加：学習画面を表示するかどうかのフラグ
+  // 学習画面を表示するかどうかのフラグ
   const [isStudyStarted, setIsStudyStarted] = useState(false);
 
   // --- 3. 学習セッション管理 ---
   const { 
     activeSession, viewingSession, historyMeta, currentData, 
-    switchSession, saveProgress, markAsCompleted 
+    switchSession, markAsCompleted 
   } = useStudySession(user?.uid);
 
   // --- 4. 授業生成フック ---
@@ -68,6 +69,7 @@ const App = () => {
     user?.uid
   );
 
+  // ルーティング（簡易）
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -77,11 +79,12 @@ const App = () => {
 
   // --- 5. アクションハンドラー ---
 
+  // 授業生成ボタンを押した時の処理
   const handleGenerate = async () => {
     try {
       await generateDailyLesson(learningMode, difficulty, selectedUnit, activeSession);
       setToast({ message: "授業の準備ができました！", type: "success" });
-      // ★生成完了したら自動で学習画面へ
+      // 生成完了したら自動で学習画面へ遷移
       setIsStudyStarted(true);
     } catch (error) {
       console.error(error);
@@ -89,14 +92,18 @@ const App = () => {
     }
   };
 
+  // 苦手を復習モード（プレースホルダー）
   const handleWeaknessReview = () => {
     setToast({ message: "弱点復習モードは現在開発中です", type: "info" });
   };
 
   // --- 6. レンダリング分岐 ---
 
-  if (authLoading) return <SmartLoader message="認証情報を確認中..." />;
+  if (authLoading) {
+    return <SmartLoader message="認証情報を確認中..." />;
+  }
 
+  // 管理者画面へのアクセス
   if (currentPath === '/admin') {
     if (!user || user.uid !== ADMIN_UID) {
       return (
@@ -109,22 +116,30 @@ const App = () => {
     return <AdminDashboard />;
   }
 
+  // 未ログイン時：メールログイン画面を表示
   if (!user) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <AuthScreen onAuthenticate={() => handleLogin(setToast)} />
+        <AuthScreen 
+          onLogin={(email, pass) => handleLogin(email, pass, setToast)} 
+        />
       </ThemeProvider>
     );
   }
 
+  // メイン画面構成
   const renderContent = () => {
-    if (isProcessing) return <SmartLoader message="AI講師が授業を準備しています..." />;
+    // データ読み込み中
+    if (isProcessing) {
+      return <SmartLoader message="AI講師が授業を準備しています..." />;
+    }
     
+    // 現在のセッションのデータ取得
     const sessionData = currentData;
     const isCompleted = historyMeta[viewingSession]?.completed;
 
-    // まだデータがない、または「学習を始める」ボタンを押していない場合
+    // 「まだデータがない」または「学習を始めるボタンを押していない」場合 -> スタート画面
     if (!sessionData || !isStudyStarted) {
       return (
         <StartScreen 
@@ -142,9 +157,8 @@ const App = () => {
           isProcessing={isProcessing}
           historyMeta={historyMeta}
           onSwitchSession={switchSession}
-          // ★ここで「学習画面へ進む」フラグをONにする
-          onResume={() => setIsStudyStarted(true)} 
-          onRegenerate={() => {}}
+          onResume={() => setIsStudyStarted(true)} // 「学習を再開する」ボタンで画面遷移
+          onRegenerate={() => {}} 
           regenCount={0}
           onLogout={handleLogout}
           userId={user.email || user.uid}
@@ -153,19 +167,20 @@ const App = () => {
       );
     }
 
+    // 学習完了後 -> まとめ画面
     if (isCompleted) {
       return (
         <SummaryScreen 
           data={sessionData.content} 
           onHome={() => {
             setIsStudyStarted(false); // ホームに戻る
-            switchSession(Math.min(activeSession + 1, 3));
+            switchSession(Math.min(activeSession + 1, 3)); // 次のセッションへ（最大3限）
           }} 
         />
       );
     }
 
-    // 学習中
+    // 学習中 -> 講義・問題画面
     return (
       <SessionManager 
         data={sessionData} 
@@ -179,11 +194,15 @@ const App = () => {
       <CssBaseline />
       <Container maxWidth="md" sx={{ minHeight: '100vh', py: 2 }}>
         {renderContent()}
+        
+        {/* 設定モーダル */}
         <SettingsModal 
           open={isSettingsOpen} 
           onClose={() => setIsSettingsOpen(false)} 
           user={user}
         />
+        
+        {/* トースト通知 */}
         {toast && (
           <Toast 
             message={toast.message} 
@@ -196,8 +215,9 @@ const App = () => {
   );
 };
 
+// セッション進行管理用サブコンポーネント
 const SessionManager = ({ data, onComplete }) => {
-  const [step, setStep] = useState('lecture');
+  const [step, setStep] = useState('lecture'); // 'lecture', 'questions', 'review'
 
   if (step === 'lecture') {
     return (
@@ -213,6 +233,7 @@ const SessionManager = ({ data, onComplete }) => {
       <QuestionsScreen 
         questions={data.content.questions} 
         onFinish={(results) => {
+            // ここで結果保存処理などを挟むことも可能
             setStep('review');
         }} 
       />

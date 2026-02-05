@@ -22,9 +22,8 @@ import AdminDashboard from './screens/AdminDashboard';
 import SmartLoader from './components/SmartLoader';
 import NavButton from './components/NavButton';
 import SettingsModal from './components/SettingsModal';
-import Toast from './components/Toast'; // 内部のToastコンポーネントを使用
+import Toast from './components/Toast'; 
 
-// 管理者UID (Firebaseルールと一致させる)
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
 
 const theme = createTheme({
@@ -48,11 +47,14 @@ const App = () => {
   const { user, loading: authLoading, handleLogin, handleLogout, handleGuestLogin } = useAuthUser();
   
   // --- 2. 状態管理 ---
-  const [learningMode, setLearningMode] = useState('general'); // 'general' or 'school'
-  const [difficulty, setDifficulty] = useState('standard');    // 'easy', 'standard', 'hard'
+  const [learningMode, setLearningMode] = useState('general');
+  const [difficulty, setDifficulty] = useState('standard');
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [toast, setToast] = useState(null); // { message, type }
+  const [toast, setToast] = useState(null);
+  
+  // ★追加：学習画面を表示するかどうかのフラグ
+  const [isStudyStarted, setIsStudyStarted] = useState(false);
 
   // --- 3. 学習セッション管理 ---
   const { 
@@ -60,13 +62,12 @@ const App = () => {
     switchSession, saveProgress, markAsCompleted 
   } = useStudySession(user?.uid);
 
-  // --- 4. 授業生成フック (APIキーは環境変数から) ---
+  // --- 4. 授業生成フック ---
   const { generateDailyLesson, isProcessing } = useLessonGenerator(
     import.meta.env.VITE_GEMINI_API_KEY, 
     user?.uid
   );
 
-  // ルーティング（簡易）
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -76,31 +77,26 @@ const App = () => {
 
   // --- 5. アクションハンドラー ---
 
-  // 授業生成ボタンを押した時の処理
   const handleGenerate = async () => {
     try {
-      // 最新の関数名 generateDailyLesson を使用
       await generateDailyLesson(learningMode, difficulty, selectedUnit, activeSession);
-      
       setToast({ message: "授業の準備ができました！", type: "success" });
+      // ★生成完了したら自動で学習画面へ
+      setIsStudyStarted(true);
     } catch (error) {
       console.error(error);
       setToast({ message: "生成に失敗しました。時間をおいて再試行してください。", type: "error" });
     }
   };
 
-  // 弱点復習モード開始
   const handleWeaknessReview = () => {
     setToast({ message: "弱点復習モードは現在開発中です", type: "info" });
   };
 
   // --- 6. レンダリング分岐 ---
 
-  if (authLoading) {
-    return <SmartLoader message="認証情報を確認中..." />;
-  }
+  if (authLoading) return <SmartLoader message="認証情報を確認中..." />;
 
-  // 管理者画面へのアクセス
   if (currentPath === '/admin') {
     if (!user || user.uid !== ADMIN_UID) {
       return (
@@ -113,7 +109,6 @@ const App = () => {
     return <AdminDashboard />;
   }
 
-  // 未ログイン時
   if (!user) {
     return (
       <ThemeProvider theme={theme}>
@@ -123,37 +118,33 @@ const App = () => {
     );
   }
 
-  // メイン画面構成
   const renderContent = () => {
-    // データ読み込み中
-    if (isProcessing) {
-      return <SmartLoader message="AI講師が授業を準備しています..." />;
-    }
+    if (isProcessing) return <SmartLoader message="AI講師が授業を準備しています..." />;
     
-    // 現在のセッションのデータ取得
     const sessionData = currentData;
     const isCompleted = historyMeta[viewingSession]?.completed;
 
-    // まだデータがない場合（スタート画面）
-    if (!sessionData) {
+    // まだデータがない、または「学習を始める」ボタンを押していない場合
+    if (!sessionData || !isStudyStarted) {
       return (
         <StartScreen 
           activeSession={activeSession}
           viewingSession={viewingSession}
-          isDailyLimitReached={false} // 簡易実装
+          isDailyLimitReached={false}
           learningMode={learningMode}
           setLearningMode={setLearningMode}
           selectedUnit={selectedUnit}
           setSelectedUnit={setSelectedUnit}
           difficulty={difficulty}
           setDifficulty={setDifficulty}
-          generateDailyLesson={handleGenerate} // 関数名を統一して渡す
+          generateDailyLesson={handleGenerate}
           startWeaknessReview={handleWeaknessReview}
           isProcessing={isProcessing}
           historyMeta={historyMeta}
           onSwitchSession={switchSession}
-          onResume={() => {}} 
-          onRegenerate={() => {}} // 再生成ロジックは必要に応じて実装
+          // ★ここで「学習画面へ進む」フラグをONにする
+          onResume={() => setIsStudyStarted(true)} 
+          onRegenerate={() => {}}
           regenCount={0}
           onLogout={handleLogout}
           userId={user.email || user.uid}
@@ -162,22 +153,23 @@ const App = () => {
       );
     }
 
-    // 学習完了後（まとめ画面）
     if (isCompleted) {
       return (
         <SummaryScreen 
           data={sessionData.content} 
-          onHome={() => switchSession(Math.min(activeSession + 1, 3))} // 次のセッションへ
+          onHome={() => {
+            setIsStudyStarted(false); // ホームに戻る
+            switchSession(Math.min(activeSession + 1, 3));
+          }} 
         />
       );
     }
 
-    // 学習中（講義 -> 問題 -> 復習）
+    // 学習中
     return (
       <SessionManager 
         data={sessionData} 
         onComplete={() => markAsCompleted(viewingSession)}
-        onBack={() => {}} // 戻る処理
       />
     );
   };
@@ -187,15 +179,11 @@ const App = () => {
       <CssBaseline />
       <Container maxWidth="md" sx={{ minHeight: '100vh', py: 2 }}>
         {renderContent()}
-        
-        {/* 設定モーダル */}
         <SettingsModal 
           open={isSettingsOpen} 
           onClose={() => setIsSettingsOpen(false)} 
           user={user}
         />
-        
-        {/* トースト通知 (自作コンポーネント) */}
         {toast && (
           <Toast 
             message={toast.message} 
@@ -208,9 +196,8 @@ const App = () => {
   );
 };
 
-// セッション進行管理用サブコンポーネント
 const SessionManager = ({ data, onComplete }) => {
-  const [step, setStep] = useState('lecture'); // 'lecture', 'questions', 'review'
+  const [step, setStep] = useState('lecture');
 
   if (step === 'lecture') {
     return (
@@ -226,7 +213,6 @@ const SessionManager = ({ data, onComplete }) => {
       <QuestionsScreen 
         questions={data.content.questions} 
         onFinish={(results) => {
-            // 結果を保存したりする処理をここに挟める
             setStep('review');
         }} 
       />

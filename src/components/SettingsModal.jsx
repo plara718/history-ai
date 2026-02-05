@@ -14,21 +14,17 @@ import {
 } from '@mui/material';
 import { Settings, Shield, Server, X, Copy, Check } from 'lucide-react';
 
-// 管理者UID (App.jsxと同じもの)
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
 
 const SettingsModal = ({ open, onClose, user }) => {
   const [copied, setCopied] = useState(false);
-  
-  // 管理者かどうか判定
   const isAdmin = user?.uid === ADMIN_UID;
 
-  // UIDコピー機能
   const handleCopyUid = () => {
     if (user?.uid) {
       navigator.clipboard.writeText(user.uid);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000); // 2秒後に戻す
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -38,9 +34,7 @@ const SettingsModal = ({ open, onClose, user }) => {
       onClose={onClose}
       fullWidth 
       maxWidth="xs"
-      PaperProps={{
-        sx: { borderRadius: 3 }
-      }}
+      PaperProps={{ sx: { borderRadius: 3 } }}
     >
       <DialogTitle sx={{ fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box display="flex" alignItems="center" gap={1}>
@@ -55,7 +49,6 @@ const SettingsModal = ({ open, onClose, user }) => {
       <DialogContent dividers>
         <Box display="flex" flexDirection="column" gap={2.5}>
           
-          {/* 1. アカウント情報 */}
           <Box>
             <Typography variant="caption" color="textSecondary" fontWeight="bold">
               ログインアカウント
@@ -63,13 +56,10 @@ const SettingsModal = ({ open, onClose, user }) => {
             <Typography variant="body1" fontWeight="500">
               {user?.email || '未取得'}
             </Typography>
-            
             <Box display="flex" alignItems="center" gap={1} mt={0.5}>
               <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.disabled', bgcolor: 'slate.50', px: 1, py: 0.5, borderRadius: 1 }}>
                 UID: {user?.uid || '---'}
               </Typography>
-              
-              {/* コピーボタン（復活） */}
               <Tooltip title={copied ? "コピーしました" : "UIDをコピー"}>
                 <IconButton onClick={handleCopyUid} size="small" sx={{ color: copied ? 'success.main' : 'text.secondary' }}>
                   {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -80,7 +70,6 @@ const SettingsModal = ({ open, onClose, user }) => {
 
           <Divider />
 
-          {/* 2. 環境設定 */}
           <Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
               <Typography variant="caption" color="textSecondary" fontWeight="bold">
@@ -99,7 +88,6 @@ const SettingsModal = ({ open, onClose, user }) => {
             </Typography>
           </Box>
 
-          {/* 3. 管理者メニュー (特定のUIDのみ表示) */}
           {isAdmin && (
             <>
               <Divider />
@@ -113,11 +101,13 @@ const SettingsModal = ({ open, onClose, user }) => {
                   color="inherit" 
                   fullWidth 
                   onClick={() => {
-                    window.location.href = '/admin';
+                    // ★修正：ハッシュによる遷移に変更（404エラー回避）
+                    window.location.hash = '/admin';
+                    onClose(); // モーダルを閉じる
                   }}
                   sx={{ 
                     bgcolor: 'slate.800', 
-                    color: 'black', 
+                    color: 'white', 
                     fontWeight: 'bold',
                     '&:hover': { bgcolor: 'slate.700' }
                   }}

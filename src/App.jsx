@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import { onAuthStateChanged } from 'firebase/auth';
+import { Container, Box, CssBaseline, ThemeProvider, createTheme, Button } from '@mui/material';
 import { auth } from './lib/firebase';
 
 // フックのインポート
@@ -19,7 +18,6 @@ import AdminDashboard from './screens/AdminDashboard';
 
 // 共通コンポーネント
 import SmartLoader from './components/SmartLoader';
-import NavButton from './components/NavButton';
 import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast'; 
 
@@ -44,17 +42,14 @@ const theme = createTheme({
 
 const App = () => {
   // --- 1. 認証管理 ---
-  // useAuthUserから handleLogin (メール/パスワード版) を受け取る
   const { user, loading: authLoading, handleLogin, handleLogout } = useAuthUser();
   
   // --- 2. 状態管理 ---
-  const [learningMode, setLearningMode] = useState('general'); // 'general' or 'school'
-  const [difficulty, setDifficulty] = useState('standard');    // 'easy', 'standard', 'hard'
+  const [learningMode, setLearningMode] = useState('general'); 
+  const [difficulty, setDifficulty] = useState('standard');
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [toast, setToast] = useState(null); // { message, type }
-  
-  // 学習画面を表示するかどうかのフラグ
+  const [toast, setToast] = useState(null);
   const [isStudyStarted, setIsStudyStarted] = useState(false);
 
   // --- 3. 学習セッション管理 ---
@@ -69,22 +64,21 @@ const App = () => {
     user?.uid
   );
 
-  // ルーティング（簡易）
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  // ハッシュルーター（#/admin）管理
+  const [currentHash, setCurrentHash] = useState(window.location.hash);
+
   useEffect(() => {
-    const handlePopState = () => setCurrentPath(window.location.pathname);
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    // ハッシュ（#以降）の変化を監視する
+    const handleHashChange = () => setCurrentHash(window.location.hash);
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
   // --- 5. アクションハンドラー ---
-
-  // 授業生成ボタンを押した時の処理
   const handleGenerate = async () => {
     try {
       await generateDailyLesson(learningMode, difficulty, selectedUnit, activeSession);
       setToast({ message: "授業の準備ができました！", type: "success" });
-      // 生成完了したら自動で学習画面へ遷移
       setIsStudyStarted(true);
     } catch (error) {
       console.error(error);
@@ -92,31 +86,34 @@ const App = () => {
     }
   };
 
-  // 苦手を復習モード（プレースホルダー）
   const handleWeaknessReview = () => {
     setToast({ message: "弱点復習モードは現在開発中です", type: "info" });
   };
 
   // --- 6. レンダリング分岐 ---
 
-  if (authLoading) {
-    return <SmartLoader message="認証情報を確認中..." />;
-  }
+  if (authLoading) return <SmartLoader message="認証情報を確認中..." />;
 
-  // 管理者画面へのアクセス
-  if (currentPath === '/admin') {
+  // 管理画面への判定（ハッシュ）
+  if (currentHash === '#/admin') {
     if (!user || user.uid !== ADMIN_UID) {
       return (
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh" flexDirection="column" gap={2}>
           管理者権限がありません
-          <NavButton onClick={() => window.location.href = '/'} label="ホームに戻る" />
+          {/* NavButtonを使わず、標準Buttonで実装 */}
+          <Button 
+            variant="outlined" 
+            onClick={() => window.location.hash = ''}
+          >
+            ホームに戻る
+          </Button>
         </Box>
       );
     }
     return <AdminDashboard />;
   }
 
-  // 未ログイン時：メールログイン画面を表示
+  // 未ログイン時
   if (!user) {
     return (
       <ThemeProvider theme={theme}>
@@ -130,16 +127,11 @@ const App = () => {
 
   // メイン画面構成
   const renderContent = () => {
-    // データ読み込み中
-    if (isProcessing) {
-      return <SmartLoader message="AI講師が授業を準備しています..." />;
-    }
+    if (isProcessing) return <SmartLoader message="AI講師が授業を準備しています..." />;
     
-    // 現在のセッションのデータ取得
     const sessionData = currentData;
     const isCompleted = historyMeta[viewingSession]?.completed;
 
-    // 「まだデータがない」または「学習を始めるボタンを押していない」場合 -> スタート画面
     if (!sessionData || !isStudyStarted) {
       return (
         <StartScreen 
@@ -157,7 +149,7 @@ const App = () => {
           isProcessing={isProcessing}
           historyMeta={historyMeta}
           onSwitchSession={switchSession}
-          onResume={() => setIsStudyStarted(true)} // 「学習を再開する」ボタンで画面遷移
+          onResume={() => setIsStudyStarted(true)} 
           onRegenerate={() => {}} 
           regenCount={0}
           onLogout={handleLogout}
@@ -167,20 +159,18 @@ const App = () => {
       );
     }
 
-    // 学習完了後 -> まとめ画面
     if (isCompleted) {
       return (
         <SummaryScreen 
           data={sessionData.content} 
           onHome={() => {
-            setIsStudyStarted(false); // ホームに戻る
-            switchSession(Math.min(activeSession + 1, 3)); // 次のセッションへ（最大3限）
+            setIsStudyStarted(false); 
+            switchSession(Math.min(activeSession + 1, 3));
           }} 
         />
       );
     }
 
-    // 学習中 -> 講義・問題画面
     return (
       <SessionManager 
         data={sessionData} 
@@ -194,15 +184,11 @@ const App = () => {
       <CssBaseline />
       <Container maxWidth="md" sx={{ minHeight: '100vh', py: 2 }}>
         {renderContent()}
-        
-        {/* 設定モーダル */}
         <SettingsModal 
           open={isSettingsOpen} 
           onClose={() => setIsSettingsOpen(false)} 
           user={user}
         />
-        
-        {/* トースト通知 */}
         {toast && (
           <Toast 
             message={toast.message} 
@@ -215,9 +201,8 @@ const App = () => {
   );
 };
 
-// セッション進行管理用サブコンポーネント
 const SessionManager = ({ data, onComplete }) => {
-  const [step, setStep] = useState('lecture'); // 'lecture', 'questions', 'review'
+  const [step, setStep] = useState('lecture');
 
   if (step === 'lecture') {
     return (
@@ -233,7 +218,6 @@ const SessionManager = ({ data, onComplete }) => {
       <QuestionsScreen 
         questions={data.content.questions} 
         onFinish={(results) => {
-            // ここで結果保存処理などを挟むことも可能
             setStep('review');
         }} 
       />

@@ -105,14 +105,28 @@ export const useStudySession = (userId) => {
       { userAnswers: ans, qIndex: idx }, { merge: true });
   };
 
-  // ★★★ 採点処理の大幅強化 ★★★
+  // ★★★ 採点処理の強化（全体分析） ★★★
   const handleGrade = async (userApiKey) => {
     const content = dailyData?.content || dailyData;
     if (!content) return;
 
+    // 1. 選択問題の成績を計算する
     const flatQ = getFlattenedQuestions(content);
     const essayIndex = flatQ.findIndex(q => q.type === 'essay');
     const answer = userAnswers[essayIndex];
+    
+    let objCorrect = 0;
+    let objTotal = 0;
+    flatQ.forEach((q, i) => {
+        if (q.type === 'true_false' || q.type === 'sort') {
+            objTotal++;
+            const uAns = userAnswers[i];
+            const isCorrect = q.type === 'true_false' 
+                ? uAns === q.correct 
+                : JSON.stringify(uAns) === JSON.stringify(q.correct_order);
+            if (isCorrect) objCorrect++;
+        }
+    });
 
     if (!answer) return;
     setIsProcessing(true);
@@ -120,14 +134,19 @@ export const useStudySession = (userId) => {
     dismissKeyboard();
 
     try {
+      // 2. AIへのプロンプトに「選択問題の結果」を含める
       const prompt = `
       あなたは「難関大学入試の採点官」です。
-      以下の「講義テキスト」の内容を正解の基準として、ユーザーの回答を厳格に採点し、採点理由を明確に提示してください。
+      今回の学習セッション全体の成績を踏まえて、記述問題の採点と、今後の学習アドバイスを行ってください。
+
+      【学習状況】
+      - 選択問題(正誤・整序): ${objTotal}問中 ${objCorrect}問 正解
+      - テーマ: ${content.theme}
 
       【講義テキスト（正解の根拠）】
       ${content.lecture}
 
-      【問題】
+      【記述問題】
       ${content.essay.q}
 
       【模範解答】
@@ -136,25 +155,19 @@ export const useStudySession = (userId) => {
       【ユーザーの回答】
       ${answer}
 
-      【採点基準（計10点）】
-      1. **知識点 (0~5点)**: 
-         - 講義に出てくる重要キーワードや史実を正確に使用しているか。
-         - 嘘や史実誤認が含まれていないか（誤りは大きく減点）。
-      2. **論理点 (0~5点)**: 
-         - 「因果関係（〜だから〜）」が論理的に説明されているか。
-         - 設問の意図に正面から答えているか（論点ズレは減点）。
-         - 日本語として成立しているか。
+      【採点基準（記述10点満点）】
+      1. **知識点 (0~5点)**: 重要キーワードや史実の正確さ。
+      2. **論理点 (0~5点)**: 因果関係の説明と論理構成。
 
-      【出力フォーマット】
-      JSON形式のみで出力してください。
+      【出力フォーマット (JSON)】
       {
         "score": { "k": [知識点], "l": [論理点] },
-        "feedback": "## 採点内訳\n- **知識点**: [点数]/5点\n  [具体的な減点理由や、使えていて良かったキーワード]\n- **論理点**: [点数]/5点\n  [論理構成への指摘。言葉足らずな部分や矛盾点]\n\n## 改善アドバイス\n[模範解答に近づくために何を書くべきだったか]",
-        "overall_advice": "学習指針となる一言"
+        "feedback": "## 記述採点詳細\n(記述問題への具体的なフィードバック)",
+        "overall_advice": "## 今回の総合アドバイス\n(選択問題の出来(${objTotal}問中${objCorrect}問正解)と記述の内容を総合し、この単元においてユーザーが強化すべきポイント、復習すべき用語、あるいは褒めるべき点を具体的にアドバイスしてください。もし選択問題の正答率が低ければ基礎の復習を促し、高ければ応用力を褒めてください。)"
       }
       `;
       
-      const res = await callAI("記述採点", prompt, userApiKey);
+      const res = await callAI("総合採点", prompt, userApiKey);
       if (!res || !res.score) throw new Error("採点データ不正");
       res.score.k = res.score.k ?? 0; res.score.l = res.score.l ?? 0;
       setEssayGrading(res);
@@ -185,7 +198,12 @@ export const useStudySession = (userId) => {
 
   const handleGiveUp = async () => {
     dismissKeyboard();
-    const res = { score: { k: 0, l: 0 }, feedback: "## 未回答\n模範解答を写経し、解説をよく読んで復習しましょう。", overall_advice: "諦めずに次は挑戦してみましょう。" };
+    // 諦めた場合の汎用アドバイス
+    const res = { 
+        score: { k: 0, l: 0 }, 
+        feedback: "## 未回答\n模範解答を写経し、解説をよく読んで復習しましょう。", 
+        overall_advice: "## 基礎から復習しましょう\n記述問題は難易度が高いですが、まずは講義を読み直し、流れを掴むところから始めましょう。諦めずに挑戦することが大切です。" 
+    };
     setEssayGrading(res);
     
     await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${activeSession}`), 

@@ -1,0 +1,16 @@
+{
+  "name": "日本史AI特訓",
+  "short_name": "日本史AI",
+  "description": "AIによる個別指導で日本史を極める学習アプリ",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

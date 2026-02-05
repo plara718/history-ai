@@ -55,13 +55,25 @@ const QuestionsScreen = ({
       return null;
   })();
 
+  // ★改善: 模範解答を表示するセクションを追加
   const EssayFeedback = () => {
       if (!essayGrading) return null;
       return (
-          <Box mt={2} p={2} bgcolor="indigo.50" borderRadius={2} border="1px solid" borderColor="indigo.100">
-              <Typography variant="subtitle2" fontWeight="bold" color="indigo.800">AIからの採点結果</Typography>
-              <Box mt={1}>
-                  <MarkdownLite text={essayGrading.feedback} />
+          <Box mt={2} display="flex" flexDirection="column" gap={2}>
+              {/* 模範解答表示エリア */}
+              <Box p={2} bgcolor="emerald.50" borderRadius={2} border="1px solid" borderColor="emerald.100">
+                  <Typography variant="subtitle2" fontWeight="bold" color="emerald.800">模範解答</Typography>
+                  <Box mt={1} sx={{ color: 'slate.700', fontSize: '0.95rem', lineHeight: 1.6 }}>
+                      <MarkdownLite text={currentQ.model || "解答例は講義内容を参考にしてください。"} />
+                  </Box>
+              </Box>
+
+              {/* AI採点結果エリア */}
+              <Box p={2} bgcolor="indigo.50" borderRadius={2} border="1px solid" borderColor="indigo.100">
+                  <Typography variant="subtitle2" fontWeight="bold" color="indigo.800">AIからの採点結果</Typography>
+                  <Box mt={1}>
+                      <MarkdownLite text={essayGrading.feedback} />
+                  </Box>
               </Box>
           </Box>
       );

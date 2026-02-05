@@ -19,6 +19,7 @@ export const useLessonGenerator = (apiKey, userId) => {
     setGenError(null);
 
     try {
+      // 管理者介入データの取得
       let intervention = null;
       try {
           const iSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'interventions', userId));
@@ -28,81 +29,83 @@ export const useLessonGenerator = (apiKey, userId) => {
       const diffSetting = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty] || DIFFICULTY_DESCRIPTIONS.general.standard;
       const targetUnit = learningMode === 'school' ? selectedUnit : "AIが選定する入試頻出テーマ";
 
-      // Step 1: Plan
+      // --- Step 1: Plan (戦略的テーマ選定) ---
       const planPrompt = `
-      あなたは日本史のプロ講師です。以下の設定で、1回分の授業テーマ（タイトル）と構成案を決定してください。
+      あなたは日本史の専門家であり、効率的なカリキュラムを設計する教務主任です。
+      以下の条件に基づき、学習効率が最大化される授業テーマと核心概念を決定してください。
 
       【設定】
       - 単元: ${targetUnit}
-      - 難易度: ${diffSetting.label}
-      - ターゲット: ${learningMode === 'school' ? '定期テスト対策' : '大学入試対策'}
+      - 難易度: ${diffSetting.label} (${diffSetting.ai})
+      - モード: ${learningMode === 'school' ? '定期テスト（基本重視）' : '大学入試（因果関係重視）'}
 
-      ${intervention ? `【★最優先指示（管理者介入）】\n指導テーマ: ${intervention.focus}\nこの指示内容をテーマ選定に必ず反映させてください。` : ''}
+      【思考基準】
+      1. 歴史的因果: 単発の知識ではなく「なぜ起きたか」「何をもたらしたか」が明確なテーマを選ぶこと。
+      2. 網羅性: 受験頻出度が高い、あるいは定期テストで必ず問われる論点を中心に据えること。
+      ${intervention ? `3. 管理者介入命令: 「${intervention.focus}」を教えるための最適なコンテキストを構築せよ。` : ''}
 
       出力は以下のJSON形式のみ返してください:
       {
-        "theme": "授業のタイトル（例：地租改正と農民一揆）",
-        "key_concepts": ["重要な概念1", "重要な概念2", "重要な概念3"]
+        "theme": "授業のタイトル",
+        "key_concepts": ["核心概念1", "核心概念2", "核心概念3"]
       }
       `;
 
       const planRes = await callAI("授業プラン作成", planPrompt, apiKey);
       if (!planRes || !planRes.theme) throw new Error("プラン生成に失敗しました");
 
-      // Step 2: Draft
+      // --- Step 2: Draft (高精度教材執筆) ---
       const draftPrompt = `
-      あなたは日本史のプロ講師です。
-      テーマ「${planRes.theme}」について、授業コンテンツを執筆してください。
+      あなたは日本史のプロ講師です。テーマ「${planRes.theme}」に基づき、一次情報を尊重した正確な教材を作成してください。
 
-      【構成要素への指示】
-      1. **概念**: ${planRes.key_concepts.join(', ')} を解説に含めること。
-      2. **講義**: ${diffSetting.ai} (1000文字程度)
-      3. **問題**: 
-         - 正誤問題(true_false): **3問**。選択肢は必ず ["True", "False"] の2択。
-         - 整序問題(sort): **2問**。
-         - 記述問題(essay): 1問 ({q, model, hint})
-      4. **用語**: 重要語句(essential_terms) 5つ。
-      5. **コラム**: 興味を引く歴史の裏話(column)。
+      【執筆ガイドライン】
+      1. 講義 (lecture): 
+         - 構成：[導入] → [背景] → [内容] → [影響・現代への繋がり]
+         - 特徴：数字は公的統計に基づき、歴史的事実の推測は厳禁。専門用語は適切に使いつつ、論理的に解説せよ。
+      2. 正誤問題 (true_false):
+         - 3問。正確な知識を問うこと。インデックス0 = True, 1 = False。
+      3. 整序問題 (sort):
+         - 2問。4つの歴史的事象を時系列に並び替える形式。
+      4. 記述問題 (essay): 
+         - 100〜120字程度で論理的に説明させる良問を作成せよ。
+      5. 重要語句 (essential_terms): 5つ。{term, def}形式。
 
-      ${intervention ? `【★最優先指示】\n興味付け・雑学ネタ: ${intervention.interest}\nこのネタをコラムまたは講義の導入に使用してください。` : ''}
+      ${intervention ? `【★追加指示】雑学ネタ: ${intervention.interest} をコラム等に活用せよ。` : ''}
 
       出力はJSON形式のみ:
-      { "theme": "${planRes.theme}", "lecture": "...", "essential_terms": [...], "true_false": [...], "sort": [...], "essay": {...}, "column": "..." }
+      {
+        "theme": "${planRes.theme}",
+        "lecture": "...",
+        "essential_terms": [{"term": "...", "def": "..."}],
+        "true_false": [{"q": "...", "options": ["True", "False"], "correct": 0, "exp": "..."}],
+        "sort": [{"q": "...", "items": ["...", "...", "...", "..."], "correct_order": [0,1,2,3], "exp": "..."}],
+        "essay": {"q": "...", "model": "...", "hint": "..."},
+        "column": "歴史の多角的視点を提供するコラム"
+      }
       `;
 
       const draftRes = await callAI("コンテンツ執筆", draftPrompt, apiKey);
       if (!draftRes || !draftRes.lecture) throw new Error("ドラフト生成に失敗しました");
 
-      // Step 3: Review
+      // --- Step 3: Review (厳格な品質検品) ---
       const reviewPrompt = `
-      あなたは「最高品質の教材を作る鬼の編集者」です。
-      以下はAIが生成した日本史の教材ドラフトです。
-      この内容を以下の基準で厳しくチェックし、不備があれば修正した完全なJSONを出力してください。
+      あなたは「日本史教材の校閲神」です。ドラフトの歴史的正確性と論理性を徹底的に検証し、完成品を出力してください。
 
-      【★最重要チェック項目】
-      1. **正誤問題(True/False)の整合性**: 
-         - 解説文(exp)を読みなさい。解説で「～ではない」「～誤りである」と否定している場合、正解(correct)は必ず「False(インデックス1)」でなければなりません。
-         - **もし解説が否定形なのに正解が「True(インデックス0)」になっている場合は、必ず正解を「False」に修正するか、解説を書き直しなさい。**
-      
-      2. **解説・解答の質**: 
-         - **解説(exp)**: 「なぜ正解か/不正解か」を論理的に説明し、歴史的背景を含めること。
-         - **模範解答(model)**: 記述問題の模範解答は、講義内容を踏まえた論理的かつ正確な文章になっているか？
-         - **ヒント(hint)**: 答えを直接言わず、思考を促すこと。
+      【検閲項目】
+      1. 論理矛盾の抹殺: 正誤問題の「解説文(exp)」と「正解(correct)」が一致しているか？「～ではない」と解説しながらTrueにする等のミスは即座に修正せよ。
+      2. 用語の平易化: 専門用語は維持しつつ、説明文の難解語を5割削減し、学習者の理解を加速させよ。
+      3. 形式遵守: 各問題数(正誤3, 整序2)、JSON構造が完全に守られているか。
 
-      3. **問題数の確認**:
-         - 正誤問題は3問、整序問題は2問あるか？不足していれば追加しなさい。
-
-      【ドラフトデータ】
+      【対象データ】
       ${JSON.stringify(draftRes)}
 
-      問題なければドラフトをそのまま、修正が必要なら修正後のJSONを出力してください。
-      JSON以外の解説文は不要です。
+      不備を修正した最終的なJSONオブジェクトのみを返せ。
       `;
 
       const finalRes = await callAI("品質チェック", reviewPrompt, apiKey);
       const contentRes = (finalRes && finalRes.lecture) ? finalRes : draftRes;
 
-      // Save Data
+      // データの保存
       const lessonData = {
         content: contentRes,
         timestamp: new Date().toISOString(),
@@ -117,7 +120,7 @@ export const useLessonGenerator = (apiKey, userId) => {
       const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
       await setDoc(docRef, lessonData);
 
-      // ★修正: 用語保存をawaitして確実にする
+      // 用語の自動保存
       if (contentRes.essential_terms) {
         await Promise.all(contentRes.essential_terms.map(async (term) => {
             try {
@@ -143,9 +146,5 @@ export const useLessonGenerator = (apiKey, userId) => {
     }
   };
 
-  return {
-    generateDailyLesson,
-    isProcessing,
-    genError
-  };
+  return { generateDailyLesson, isProcessing, genError };
 };

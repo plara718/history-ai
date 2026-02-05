@@ -22,7 +22,6 @@ export const useStudySession = (userId) => {
   const [processingError, setProcessingError] = useState(null);
   const scoreRef = useRef(null);
 
-  // セッション読み込み
   const loadSession = async (sessionNum) => {
     if (!userId) return;
     try {
@@ -105,16 +104,16 @@ export const useStudySession = (userId) => {
       { userAnswers: ans, qIndex: idx }, { merge: true });
   };
 
-  // ★★★ 採点処理の強化（全体分析） ★★★
+  // ★★★ 記述採点・総合分析プロンプトの強化版 ★★★
   const handleGrade = async (userApiKey) => {
     const content = dailyData?.content || dailyData;
     if (!content) return;
 
-    // 1. 選択問題の成績を計算する
     const flatQ = getFlattenedQuestions(content);
     const essayIndex = flatQ.findIndex(q => q.type === 'essay');
     const answer = userAnswers[essayIndex];
     
+    // 客観テストの集計
     let objCorrect = 0;
     let objTotal = 0;
     flatQ.forEach((q, i) => {
@@ -134,41 +133,36 @@ export const useStudySession = (userId) => {
     dismissKeyboard();
 
     try {
-      // 2. AIへのプロンプトに「選択問題の結果」を含める
       const prompt = `
-      あなたは「難関大学入試の採点官」です。
-      今回の学習セッション全体の成績を踏まえて、記述問題の採点と、今後の学習アドバイスを行ってください。
+      あなたは日本史のプロ採点官です。本セッションの客観的成績と記述回答を厳格に分析し、論理的な指導を行ってください。
 
-      【学習状況】
-      - 選択問題(正誤・整序): ${objTotal}問中 ${objCorrect}問 正解
+      【学習データ】
       - テーマ: ${content.theme}
+      - 客観テスト（正誤・整序）: ${objTotal}問中 ${objCorrect}問 正解
+      - 講義本文（正解の根拠）: ${content.lecture}
+      - 記述設問: ${content.essay.q}
+      - 模範解答: ${content.essay.model}
+      - 提出回答: ${answer}
 
-      【講義テキスト（正解の根拠）】
-      ${content.lecture}
+      【採点基準（10点満点：精度優先で厳格に判定せよ）】
+      1. 知識点 (0-5点): 
+         - 講義内の重要キーワードを正しく、適切な文脈で使用しているか。
+         - 歴史的事実に対する誤認（年号、人物、事件の関係性）はないか。
+      2. 論理点 (0-5点): 
+         - 設問の要求（「背景を述べよ」「意義を説明せよ」等）に直接回答しているか。
+         - 事象の因果関係が論理的に整合しているか（「AだからBになった」という飛躍のない接続）。
 
-      【記述問題】
-      ${content.essay.q}
-
-      【模範解答】
-      ${content.essay.model}
-
-      【ユーザーの回答】
-      ${answer}
-
-      【採点基準（記述10点満点）】
-      1. **知識点 (0~5点)**: 重要キーワードや史実の正確さ。
-      2. **論理点 (0~5点)**: 因果関係の説明と論理構成。
-
-      【出力フォーマット (JSON)】
+      【出力形式：JSON】
       {
-        "score": { "k": [知識点], "l": [論理点] },
-        "feedback": "## 記述採点詳細\n(記述問題への具体的なフィードバック)",
-        "overall_advice": "## 今回の総合アドバイス\n(選択問題の出来(${objTotal}問中${objCorrect}問正解)と記述の内容を総合し、この単元においてユーザーが強化すべきポイント、復習すべき用語、あるいは褒めるべき点を具体的にアドバイスしてください。もし選択問題の正答率が低ければ基礎の復習を促し、高ければ応用力を褒めてください。)"
+        "score": { "k": [知識点0-5], "l": [論理点0-5] },
+        "feedback": "## 記述採点レポート\\n- **評価点**: 具体的にどの記述が正確だったか\\n- **修正点**: 事実誤認や論理の飛躍の鋭い指摘\\n- **加筆推奨**: より高得点を狙うためのキーワードや視点",
+        "overall_advice": "## 総合指導案\\n今回の客観テスト（${objTotal}問中${objCorrect}問正解）と記述の内容を総合し、学習者に「次になすべき復習」を具体的に指示してください。客観テストが低い場合は用語の再暗記を、記述が低い場合は因果関係の把握を重点的に促すこと。"
       }
       `;
       
       const res = await callAI("総合採点", prompt, userApiKey);
       if (!res || !res.score) throw new Error("採点データ不正");
+      
       res.score.k = res.score.k ?? 0; res.score.l = res.score.l ?? 0;
       setEssayGrading(res);
       
@@ -179,11 +173,7 @@ export const useStudySession = (userId) => {
       await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
         { data: { [today]: increment(1) } }, { merge: true });
       
-      setHeatmapStats(prev => ({
-          ...prev,
-          [today]: (prev[today] || 0) + 1
-      }));
-        
+      setHeatmapStats(prev => ({ ...prev, [today]: (prev[today] || 0) + 1 }));
       setHistoryMeta(p => ({...p, [activeSession]: {...p[activeSession], completed: true}}));
       setIsAnswered(true);
       return true;
@@ -191,18 +181,15 @@ export const useStudySession = (userId) => {
     } catch (e) {
       setProcessingError("採点エラー: " + e.message);
       return false;
-    } finally {
-      setIsProcessing(false);
-    }
+    } finally { setIsProcessing(false); }
   };
 
   const handleGiveUp = async () => {
     dismissKeyboard();
-    // 諦めた場合の汎用アドバイス
     const res = { 
         score: { k: 0, l: 0 }, 
-        feedback: "## 未回答\n模範解答を写経し、解説をよく読んで復習しましょう。", 
-        overall_advice: "## 基礎から復習しましょう\n記述問題は難易度が高いですが、まずは講義を読み直し、流れを掴むところから始めましょう。諦めずに挑戦することが大切です。" 
+        feedback: "## 未回答\\n模範解答を写経し、解説をよく読んで事象の因果関係を復習しましょう。", 
+        overall_advice: "## 基礎から復習しましょう\\n記述は歴史の理解度を測る最も重要なステップです。まずは講義を読み直し、重要用語を自分の言葉で説明できるように練習しましょう。" 
     };
     setEssayGrading(res);
     
@@ -210,54 +197,28 @@ export const useStudySession = (userId) => {
       { essayGrading: res, userAnswers, completed: true }, { merge: true });
       
     const today = getTodayString();
-    await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
-      { data: { [today]: increment(1) } }, { merge: true });
-
-    setHeatmapStats(prev => ({
-        ...prev,
-        [today]: (prev[today] || 0) + 1
-    }));
-      
+    await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), { data: { [today]: increment(1) } }, { merge: true });
+    setHeatmapStats(prev => ({ ...prev, [today]: (prev[today] || 0) + 1 }));
     setHistoryMeta(p => ({...p, [activeSession]: {...p[activeSession], completed: true}}));
     setIsAnswered(true);
   };
 
-  useEffect(() => {
-      loadHistoryMeta();
-  }, [userId]);
+  useEffect(() => { loadHistoryMeta(); }, [userId]);
 
   const markAsCompleted = async (sessionNum) => {
       if (!userId) return;
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${sessionNum}`), 
-        { completed: true }, { merge: true });
-      
-      setHistoryMeta(prev => ({
-          ...prev,
-          [sessionNum]: { ...prev[sessionNum], completed: true }
-      }));
+      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${sessionNum}`), { completed: true }, { merge: true });
+      setHistoryMeta(prev => ({ ...prev, [sessionNum]: { ...prev[sessionNum], completed: true } }));
   };
 
   return {
-    dailyData, 
-    currentData: dailyData,
-    setDailyData,
-    userAnswers, setUserAnswers,
-    qIndex, setQIndex,
-    isAnswered, setIsAnswered,
-    essayGrading, setEssayGrading,
-    isProcessing, setIsProcessing,
-    activeSession, setActiveSession,
-    viewingSession, setViewingSession,
-    historyMeta, setHistoryMeta,
-    heatmapStats, setHeatmapStats,
-    processingError,
-    scoreRef,
-    loadSession,
-    loadHistoryMeta,
-    saveProgress,
-    handleGrade,
-    handleGiveUp,
-    switchSession,
-    markAsCompleted
+    dailyData, currentData: dailyData, setDailyData,
+    userAnswers, setUserAnswers, qIndex, setQIndex,
+    isAnswered, setIsAnswered, essayGrading, setEssayGrading,
+    isProcessing, setIsProcessing, activeSession, setActiveSession,
+    viewingSession, setViewingSession, historyMeta, setHistoryMeta,
+    heatmapStats, setHeatmapStats, processingError, scoreRef,
+    loadSession, loadHistoryMeta, saveProgress, handleGrade, handleGiveUp,
+    switchSession, markAsCompleted
   };
 };

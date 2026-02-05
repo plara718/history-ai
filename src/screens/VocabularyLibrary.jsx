@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, Paper, Container, Stack, TextField, InputAdornment, Chip } from '@mui/material';
 import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { APP_ID } from '../lib/constants';
+import { APP_ID } from '../lib/constants'; // constantsのパスを確認
 import { Search, Book, Bookmark, Filter } from 'lucide-react';
 
 const VocabularyLibrary = ({ userId }) => {
@@ -17,7 +17,6 @@ const VocabularyLibrary = ({ userId }) => {
         const q = query(collection(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary'));
         const snap = await getDocs(q);
         const list = snap.docs.map(d => d.data());
-        // 頻出順（count順）や五十音順に並べるとより良いが、一旦は新しい順か取得順
         setTerms(list);
       } catch (e) {
         console.error(e);
@@ -28,7 +27,6 @@ const VocabularyLibrary = ({ userId }) => {
     fetchTerms();
   }, [userId]);
 
-  // 検索フィルター
   const filteredTerms = terms.filter(t => 
       t.term.includes(searchQuery) || t.def.includes(searchQuery)
   );
@@ -36,7 +34,6 @@ const VocabularyLibrary = ({ userId }) => {
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 12 }}>
       
-      {/* ヘッダー */}
       <Box mb={4} textAlign="center">
           <Typography variant="h5" fontWeight="900" color="slate.900" gutterBottom display="flex" alignItems="center" justifyContent="center" gap={1}>
               <Book className="text-indigo-600" /> マイ用語帳
@@ -46,7 +43,6 @@ const VocabularyLibrary = ({ userId }) => {
           </Typography>
       </Box>
 
-      {/* 検索バー */}
       <Paper elevation={0} sx={{ p: 2, mb: 4, borderRadius: 3, bgcolor: 'white', border: '1px solid', borderColor: 'divider' }}>
           <TextField
               fullWidth
@@ -66,7 +62,6 @@ const VocabularyLibrary = ({ userId }) => {
           />
       </Paper>
 
-      {/* 用語リスト */}
       <Stack spacing={2}>
           {loading ? (
               <Typography textAlign="center" color="text.secondary" py={4}>読み込み中...</Typography>

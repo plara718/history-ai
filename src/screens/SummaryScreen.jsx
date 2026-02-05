@@ -1,8 +1,21 @@
 import React from 'react';
-import { Box, Button, Typography, Paper, Container, TextField, Stack, Chip, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+import { Box, Button, Typography, Paper, Container, TextField, Stack, Chip, Accordion, AccordionSummary, AccordionDetails, Box as MuiBox } from '@mui/material';
 import { Check, Copy, Home, MessageSquare, ChevronDown, X, Sparkles } from 'lucide-react';
 import MarkdownLite from '../components/MarkdownLite';
 import { getFlattenedQuestions } from '../lib/utils';
+
+// 簡易プログレスバーコンポーネント
+const LinearProgressWithLabel = ({ value }) => {
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box sx={{ width: '100%', mr: 1 }}>
+                <Box sx={{ width: '100%', bgcolor: 'slate.100', borderRadius: 5, height: 10 }}>
+                    <Box sx={{ width: `${value}%`, bgcolor: value >= 80 ? 'emerald.500' : 'indigo.500', borderRadius: 5, height: '100%', transition: 'width 0.5s' }} />
+                </Box>
+            </Box>
+        </Box>
+    );
+};
 
 const SummaryScreen = ({ 
     dailyData, 
@@ -17,10 +30,8 @@ const SummaryScreen = ({
     startNextSession 
 }) => {
 
-  // 問題データの展開
   const flatQuestions = getFlattenedQuestions(dailyData);
   
-  // 正答数の計算
   let correctCount = 0;
   const results = flatQuestions.map((q, i) => {
       let isCorrect = false;
@@ -31,7 +42,6 @@ const SummaryScreen = ({
       } else if (q.type === 'sort') {
           isCorrect = JSON.stringify(userAns) === JSON.stringify(q.correct_order);
       } else if (q.type === 'essay') {
-          // 記述は採点済みなら正解扱い（便宜上）
           isCorrect = true; 
       }
       
@@ -39,13 +49,11 @@ const SummaryScreen = ({
       return { q, isCorrect, userAns };
   });
 
-  // 選択問題・整序問題の合計数（記述を除く）
   const objectiveCount = flatQuestions.filter(q => q.type !== 'essay').length;
 
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 10 }}>
       
-      {/* 完了メッセージ */}
       <Box sx={{ textAlign: 'center', mb: 4 }}>
           <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
               <Check size={32} strokeWidth={3} />
@@ -58,7 +66,6 @@ const SummaryScreen = ({
           </Typography>
       </Box>
 
-      {/* スコアカード */}
       <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, bgcolor: 'white', border: '1px solid', borderColor: 'divider' }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
               <Typography variant="h6" fontWeight="bold" color="text.secondary">
@@ -71,7 +78,6 @@ const SummaryScreen = ({
           <LinearProgressWithLabel value={objectiveCount > 0 ? (correctCount / objectiveCount) * 100 : 0} />
       </Paper>
 
-      {/* 深掘りコラム (データがある場合のみ表示) */}
       {dailyData.column && (
           <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, bgcolor: 'indigo.50', border: '1px solid', borderColor: 'indigo.100' }}>
               <Typography variant="h6" fontWeight="bold" color="indigo.900" gutterBottom flex alignItems="center" gap={1}>
@@ -83,13 +89,12 @@ const SummaryScreen = ({
           </Paper>
       )}
 
-      {/* 結果の詳細リスト（アコーディオン） */}
       <Box mb={4}>
           <Typography variant="subtitle2" fontWeight="bold" color="text.secondary" gutterBottom ml={1}>
               問題ごとの結果
           </Typography>
           {results.map((item, i) => {
-              if (item.q.type === 'essay') return null; // 記述は別枠で表示
+              if (item.q.type === 'essay') return null;
 
               return (
                   <Accordion key={i} elevation={0} sx={{ bgcolor: 'transparent', '&:before': { display: 'none' } }}>
@@ -142,7 +147,6 @@ const SummaryScreen = ({
           })}
       </Box>
 
-      {/* 記述採点の結果 */}
       {essayGrading && (
           <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, bgcolor: 'indigo.50', border: '1px solid', borderColor: 'indigo.100' }}>
               <Typography variant="h6" fontWeight="bold" color="indigo.900" gutterBottom flex alignItems="center" gap={1}>
@@ -158,7 +162,6 @@ const SummaryScreen = ({
           </Paper>
       )}
 
-      {/* 振り返りメモ */}
       <Box mb={6}>
           <Typography variant="subtitle2" fontWeight="bold" gutterBottom ml={1}>
               学習の振り返り
@@ -169,14 +172,13 @@ const SummaryScreen = ({
               rows={3}
               placeholder="今日の気づきや、次に調べたいことをメモしておきましょう"
               value={reflection}
-              onChange={setReflection}
-              onBlur={saveReflection}
+              onChange={(e) => setReflection(e.target.value)}
+              onBlur={(e) => saveReflection(e.target.value)}
               disabled={isReadOnly}
               sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
           />
       </Box>
 
-      {/* アクションボタン */}
       <Stack spacing={2}>
           <Button 
               variant="outlined" 
@@ -192,7 +194,7 @@ const SummaryScreen = ({
               <Button 
                   variant="contained" 
                   fullWidth 
-                  size="large"
+                  size="large" 
                   onClick={startNextSession}
                   sx={{ borderRadius: 3, py: 2, fontWeight: 'bold', boxShadow: 4 }}
               >
@@ -205,7 +207,7 @@ const SummaryScreen = ({
                   variant="text" 
                   fullWidth 
                   startIcon={<Home />}
-                  onClick={startNextSession} // 読み取り専用時はホームに戻る挙動になる
+                  onClick={startNextSession} 
                   sx={{ color: 'text.secondary' }}
               >
                   ホームに戻る
@@ -214,19 +216,6 @@ const SummaryScreen = ({
       </Stack>
     </Container>
   );
-};
-
-// 簡易プログレスバー
-const LinearProgressWithLabel = ({ value }) => {
-    return (
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Box sx={{ width: '100%', mr: 1 }}>
-                <Box sx={{ width: '100%', bgcolor: 'slate.100', borderRadius: 5, height: 10 }}>
-                    <Box sx={{ width: `${value}%`, bgcolor: value >= 80 ? 'emerald.500' : 'indigo.500', borderRadius: 5, height: '100%', transition: 'width 0.5s' }} />
-                </Box>
-            </Box>
-        </Box>
-    );
 };
 
 export default SummaryScreen;

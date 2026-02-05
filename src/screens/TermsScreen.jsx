@@ -7,6 +7,9 @@ const TermsScreen = ({ dailyData, learningMode, onNext }) => {
   const themeColor = isSchool ? "text-emerald-700" : "text-indigo-700";
   const btnColor = isSchool ? "success" : "primary";
 
+  // データ防御: essential_termsがない場合のフォールバック
+  const termsList = dailyData.essential_terms || [];
+
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 10 }}>
       
@@ -20,7 +23,7 @@ const TermsScreen = ({ dailyData, learningMode, onNext }) => {
       </Box>
 
       <Stack spacing={2} mb={4}>
-          {dailyData.essential_terms.map((term, i) => (
+          {termsList.map((term, i) => (
               <Paper 
                   key={i} 
                   elevation={0} 

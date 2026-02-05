@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, Typography, Container, Stack, Paper, Chip, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
-import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut } from 'lucide-react';
-import { TEXTBOOK_UNITS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants';
+import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, Info } from 'lucide-react';
+import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants'; // ★DIFFICULTY_DESCRIPTIONSを追加
 
 const StartScreen = ({ 
   activeSession, viewingSession, isDailyLimitReached,
@@ -10,46 +10,55 @@ const StartScreen = ({
   difficulty, setDifficulty,
   generateDailyLesson, startWeaknessReview,
   isProcessing, historyMeta, onSwitchSession,
-  onResume, onRegenerate, regenCount,
+  hasUnfinishedSession, onResume, onRegenerate, regenCount,
   onLogout, userId, openSettings 
 }) => {
   
   const isSchool = learningMode === 'school';
-  const themeColor = isSchool ? 'emerald' : 'indigo';
+  const themeColor = isSchool ? 'emerald' : 'indigo'; 
   
-  // 表示中のセッションステータス
-  const meta = historyMeta[viewingSession] || {};
-  const isViewingCompleted = !!meta.completed;
-  const isViewingExists = !!meta.exists;
+  const isViewingCompleted = historyMeta && historyMeta[viewingSession]?.completed;
+  const isViewingExists = historyMeta && historyMeta[viewingSession]?.exists;
+
+  // 現在の難易度の説明を取得
+  const difficultyInfo = DIFFICULTY_DESCRIPTIONS[learningMode][difficulty];
 
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 8 }}>
       
-      {/* 1. ユーザーヘッダー */}
       <Box mb={3} display="flex" justifyContent="space-between" alignItems="center">
           <Box>
               <Typography variant="caption" fontWeight="bold" color="text.secondary">ログイン中</Typography>
               <Typography variant="body2" fontFamily="monospace" fontWeight="bold" color="slate.700">
-                  {userId ? (userId.slice(0, 6) + "...") : "Guest"}
+                  {userId ? (userId.slice(0, 6) + "...") : ""}
               </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
-              <Button size="small" variant="outlined" color="inherit" onClick={openSettings} startIcon={<Settings size={14}/>} sx={{ minWidth: 0, px: 1.5 }}>設定</Button>
-              <Button size="small" variant="outlined" color="error" onClick={onLogout} startIcon={<LogOut size={14}/>} sx={{ minWidth: 0, px: 1.5 }}>ログアウト</Button>
+              <Button 
+                  size="small" variant="outlined" color="inherit" onClick={openSettings}
+                  startIcon={<Settings size={14}/>} sx={{ minWidth: 0, px: 1.5 }}
+              >
+                  設定
+              </Button>
+              <Button 
+                  size="small" variant="outlined" color="error" onClick={onLogout}
+                  startIcon={<LogOut size={14}/>} sx={{ minWidth: 0, px: 1.5 }}
+              >
+                  ログアウト
+              </Button>
           </Stack>
       </Box>
 
-      {/* 2. セッション切り替えタブ */}
       <Stack direction="row" spacing={1} mb={4} justifyContent="center">
         {[1, 2, 3].map((num) => {
-           const sMeta = historyMeta[num] || {};
+           const meta = historyMeta[num] || {};
            const isActive = num === viewingSession;
-           const isFuture = num > activeSession && !sMeta.exists;
+           const isFuture = num > activeSession && !meta.exists;
            
            let bg = 'bg-slate-100 text-slate-400';
            if (isActive) bg = isSchool ? 'bg-emerald-600 text-white shadow-lg scale-105' : 'bg-indigo-600 text-white shadow-lg scale-105';
-           else if (sMeta.completed) bg = 'bg-slate-800 text-white';
-           else if (sMeta.exists) bg = `bg-white border-2 border-${themeColor}-600 text-${themeColor}-600`;
+           else if (meta.completed) bg = 'bg-slate-800 text-white';
+           else if (meta.exists) bg = 'bg-white border-2 border-indigo-600 text-indigo-600';
 
            return (
              <button
@@ -60,7 +69,7 @@ const StartScreen = ({
              >
                <span className="text-xs font-bold">限目</span>
                <span className="text-2xl font-black">{num}</span>
-               {sMeta.completed && <div className="absolute -top-2 -right-2 bg-yellow-400 text-slate-900 rounded-full p-0.5"><Zap size={12} fill="currentColor"/></div>}
+               {meta.completed && <div className="absolute -top-2 -right-2 bg-yellow-400 text-slate-900 rounded-full p-0.5"><Zap size={12} fill="currentColor"/></div>}
              </button>
            );
         })}
@@ -68,7 +77,6 @@ const StartScreen = ({
 
       <Paper elevation={0} sx={{ p: 3, borderRadius: 4, mb: 3, bgcolor: 'white', border: '1px solid', borderColor: 'slate.200' }}>
         
-        {/* 3. モード・難易度設定 (未生成時のみ変更可) */}
         {!isViewingExists && (
           <Stack spacing={3} mb={3}>
             <ToggleButtonGroup
@@ -77,78 +85,135 @@ const StartScreen = ({
               onChange={(e, v) => v && setLearningMode(v)}
               fullWidth
               sx={{ 
-                '& .MuiToggleButton-root': { borderRadius: 3, fontWeight: 'bold', border: 'none', bgcolor: 'slate-50', mx: 0.5 },
+                '& .MuiToggleButton-root': { borderRadius: 3, fontWeight: 'bold', border: 'none', bgcolor: 'slate.50', mx: 0.5 },
                 '& .Mui-selected': { bgcolor: `${themeColor}.100 !important`, color: `${themeColor}.700 !important` }
               }}
             >
-              <ToggleButton value="general" sx={{ py: 1.5 }}><GraduationCap size={18} className="mr-2"/> 受験総合</ToggleButton>
-              <ToggleButton value="school" sx={{ py: 1.5 }}><School size={18} className="mr-2"/> 定期テスト</ToggleButton>
+              <ToggleButton value="general" sx={{ py: 1.5 }}>
+                <GraduationCap size={18} className="mr-2"/> 受験総合
+              </ToggleButton>
+              <ToggleButton value="school" sx={{ py: 1.5 }}>
+                <School size={18} className="mr-2"/> 定期テスト
+              </ToggleButton>
             </ToggleButtonGroup>
 
             {isSchool && (
                <FormControl fullWidth size="small">
                  <InputLabel>教科書の単元</InputLabel>
-                 <Select value={selectedUnit} label="教科書の単元" onChange={(e) => setSelectedUnit(e.target.value)} sx={{ borderRadius: 2 }}>
-                   {TEXTBOOK_UNITS.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
+                 <Select
+                   value={selectedUnit}
+                   label="教科書の単元"
+                   onChange={(e) => setSelectedUnit(e.target.value)}
+                   sx={{ borderRadius: 2 }}
+                 >
+                   {TEXTBOOK_UNITS.map((u) => (
+                     <MenuItem key={u} value={u}>{u}</MenuItem>
+                   ))}
                  </Select>
                </FormControl>
             )}
 
-            <Stack spacing={1.5} alignItems="center">
-                <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="caption" fontWeight="bold" color="text.secondary">難易度:</Typography>
-                    {['easy', 'standard', 'hard'].map(d => (
-                        <Chip 
-                            key={d} 
-                            label={d === 'easy' ? '基本' : d === 'standard' ? '標準' : '発展'} 
-                            onClick={() => setDifficulty(d)}
-                            color={difficulty === d ? (isSchool ? 'success' : 'primary') : 'default'}
-                            variant={difficulty === d ? 'filled' : 'outlined'}
-                            size="small"
-                            sx={{ fontWeight: 'bold' }}
-                        />
-                    ))}
-                </Stack>
-                {/* 難易度の説明文 */}
-                <Box sx={{ minHeight: '2rem', px: 1, textAlign: 'center' }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic', display: 'block', lineHeight: 1.4 }}>
-                        {DIFFICULTY_DESCRIPTIONS[learningMode][difficulty].label}
-                    </Typography>
-                </Box>
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                <Typography variant="caption" fontWeight="bold" color="text.secondary">難易度:</Typography>
+                {['easy', 'standard', 'hard'].map(d => (
+                    <Chip 
+                        key={d} 
+                        label={d === 'easy' ? '基本' : d === 'standard' ? '標準' : '発展'} 
+                        onClick={() => setDifficulty(d)}
+                        color={difficulty === d ? (isSchool ? 'success' : 'primary') : 'default'}
+                        variant={difficulty === d ? 'filled' : 'outlined'}
+                        size="small"
+                        sx={{ fontWeight: 'bold' }}
+                    />
+                ))}
             </Stack>
+
+            {/* ★ここが復活した「難易度説明エリア」です */}
+            <Box 
+                sx={{ 
+                    p: 2, 
+                    bgcolor: 'slate.50', 
+                    borderRadius: 2, 
+                    border: '1px dashed', 
+                    borderColor: 'slate.300',
+                    display: 'flex',
+                    gap: 1.5,
+                    alignItems: 'start'
+                }}
+            >
+                <Info size={18} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                <Typography variant="caption" color="text.secondary" fontWeight="medium" lineHeight={1.6}>
+                    {difficultyInfo.label}
+                </Typography>
+            </Box>
+
           </Stack>
         )}
 
-        {/* 4. メインアクション */}
         <Stack spacing={2}>
             {isViewingExists ? (
                 isViewingCompleted ? (
-                    <Button fullWidth disabled variant="contained" color="inherit" sx={{ borderRadius: 3, py: 1.5 }}>この学習は完了しました</Button>
+                    <Button fullWidth disabled variant="contained" color="inherit" sx={{ borderRadius: 3, py: 1.5 }}>
+                        この学習は完了しました
+                    </Button>
                 ) : (
-                    <Button fullWidth variant="contained" size="large" onClick={onResume} startIcon={<Play fill="currentColor" />}
-                        sx={{ borderRadius: 3, py: 2, fontSize: '1.1rem', fontWeight: 'bold', bgcolor: `${themeColor}.600`, '&:hover': { bgcolor: `${themeColor}.700` } }}>
+                    <Button 
+                        fullWidth 
+                        variant="contained" 
+                        size="large" 
+                        onClick={onResume}
+                        startIcon={<Play fill="currentColor" />}
+                        className={`bg-${themeColor}-600 hover:bg-${themeColor}-700`}
+                        sx={{ borderRadius: 3, py: 2, fontSize: '1.1rem', fontWeight: 'bold' }}
+                    >
                         学習を再開する
                     </Button>
                 )
             ) : (
-                <Button fullWidth variant="contained" size="large" onClick={generateDailyLesson} disabled={isProcessing || isDailyLimitReached}
+                <Button 
+                    fullWidth 
+                    variant="contained" 
+                    size="large" 
+                    onClick={generateDailyLesson}
+                    disabled={isProcessing || isDailyLimitReached}
                     startIcon={isProcessing ? <Zap className="animate-spin"/> : <BookOpen />}
-                    sx={{ borderRadius: 3, py: 2, fontSize: '1.1rem', fontWeight: 'bold', bgcolor: isSchool ? '#059669' : '#4f46e5', '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' } }}>
+                    sx={{ 
+                        borderRadius: 3, 
+                        py: 2, 
+                        fontSize: '1.1rem', 
+                        fontWeight: 'bold',
+                        bgcolor: isSchool ? '#059669' : '#4f46e5',
+                        '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' }
+                    }}
+                >
                     {isProcessing ? "AIが授業準備中..." : "学習をはじめる"}
                 </Button>
             )}
 
             {isViewingExists && !isViewingCompleted && (
-                <Button fullWidth size="small" color="error" variant="text" onClick={onRegenerate} disabled={isProcessing || regenCount >= 1} startIcon={<RotateCcw size={14} />}>
+                <Button 
+                    fullWidth 
+                    size="small" 
+                    color="error" 
+                    variant="text"
+                    onClick={onRegenerate}
+                    disabled={isProcessing || regenCount >= 1}
+                    startIcon={<RotateCcw size={14} />}
+                >
                     問題を生成し直す (あと{1 - regenCount}回)
                 </Button>
             )}
         </Stack>
       </Paper>
 
-      {/* 5. サブアクション */}
-      <Button fullWidth variant="outlined" onClick={startWeaknessReview} disabled={isProcessing} startIcon={<RotateCcw />}
-          sx={{ borderRadius: 3, py: 1.5, borderColor: 'slate.300', color: 'slate.600', fontWeight: 'bold' }}>
+      <Button 
+          fullWidth 
+          variant="outlined" 
+          onClick={startWeaknessReview}
+          disabled={isProcessing}
+          startIcon={<RotateCcw />}
+          sx={{ borderRadius: 3, py: 1.5, borderColor: 'slate.300', color: 'slate.600', fontWeight: 'bold' }}
+      >
           苦手を復習モード
       </Button>
 

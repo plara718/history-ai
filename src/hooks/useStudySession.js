@@ -5,8 +5,8 @@ import { callAI } from '../lib/api';
 import { APP_ID, MAX_DAILY_SESSIONS } from '../lib/constants';
 import { getTodayString, validateLessonData, getFlattenedQuestions, dismissKeyboard } from '../lib/utils';
 
-export const useStudySession = (user) => {
-  const [dailyData, setDailyData] = useState(null);
+export const useStudySession = (userId) => {
+  const [currentData, setDailyData] = useState(null); // App.jsxとの整合性のため dailyData -> currentData としても使えるように
   const [userAnswers, setUserAnswers] = useState({});
   const [qIndex, setQIndex] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -22,16 +22,21 @@ export const useStudySession = (user) => {
   const [processingError, setProcessingError] = useState(null);
   const scoreRef = useRef(null);
 
+  // セッションデータの読み込み
   const loadSession = async (sessionNum) => {
-    if (!user) return;
+    if (!userId) return;
     try {
       const today = getTodayString();
-      const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress', `${today}_${sessionNum}`));
+      const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`));
       if (snap.exists()) {
         const d = snap.data();
-        const safeContent = validateLessonData(d.content);
+        // contentプロパティがあればそれを、なければdそのものを(互換性)
+        const contentData = d.content || d;
+        const safeContent = validateLessonData(contentData);
+        
         if (safeContent) {
-          setDailyData(safeContent);
+          // App.jsxは { content: ... } の形を期待している箇所があるため整形
+          setDailyData({ ...d, content: safeContent });
           setUserAnswers(d.userAnswers || {});
           setQIndex(d.qIndex || 0);
           setEssayGrading(d.essayGrading || null);
@@ -43,10 +48,18 @@ export const useStudySession = (user) => {
     } catch (e) { console.error(e); }
   };
 
+  // App.jsx から呼ばれる "switchSession" (実体は loadSession + state更新)
+  const switchSession = async (n) => {
+      setViewingSession(n);
+      setActiveSession(n); // 基本的に同期させる
+      await loadSession(n);
+  };
+
+  // 履歴メタデータの読み込み
   const loadHistoryMeta = async () => {
-    if (!user) return;
+    if (!userId) return;
     try {
-      const hmSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'stats', 'heatmap'));
+      const hmSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'));
       if (hmSnap.exists()) {
           setHeatmapStats(hmSnap.data().data || {});
       }
@@ -54,7 +67,7 @@ export const useStudySession = (user) => {
       const today = getTodayString();
       const promises = [];
       for (let i = 1; i <= MAX_DAILY_SESSIONS; i++) {
-        promises.push(getDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress', `${today}_${i}`)));
+        promises.push(getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${i}`)));
       }
       const snaps = await Promise.all(promises);
       
@@ -83,20 +96,47 @@ export const useStudySession = (user) => {
       setActiveSession(next);
       setViewingSession(limitReached ? MAX_DAILY_SESSIONS : next);
       
+      // 初期ロード時に現在のセッションデータを読み込む
+      await loadSession(limitReached ? MAX_DAILY_SESSIONS : next);
+
       return { next, limitReached };
     } catch (e) { console.error(e); }
   };
 
+  // 進捗保存
   const saveProgress = async (ans, idx) => {
-    if (!user) return;
+    if (!userId) return;
     setUserAnswers(ans);
     setQIndex(idx);
-    await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress', `${getTodayString()}_${activeSession}`), 
+    await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${activeSession}`), 
       { userAnswers: ans, qIndex: idx }, { merge: true });
   };
 
+  // 完了フラグを立てる (App.jsxから呼ばれる)
+  const markAsCompleted = async (sessionNum) => {
+      if (!userId) return;
+      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${sessionNum}`), 
+        { completed: true }, { merge: true });
+      
+      // メタデータも更新
+      setHistoryMeta(prev => ({
+          ...prev,
+          [sessionNum]: { ...prev[sessionNum], completed: true }
+      }));
+      
+      // ヒートマップ更新 (1日1回などの制御はここではなくhandleGradeで行われているが、念のため完了時も更新)
+      const today = getTodayString();
+      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
+        { data: { [today]: increment(1) } }, { merge: true });
+  };
+
+  // 記述採点 (厳格プロンプト復活)
   const handleGrade = async (userApiKey) => {
-    const flatQ = getFlattenedQuestions(dailyData);
+    // currentData.content が実際のデータ
+    const dataContent = currentData?.content || currentData;
+    if (!dataContent) return;
+
+    const flatQ = getFlattenedQuestions(dataContent);
     const essayIndex = flatQ.findIndex(q => q.type === 'essay');
     const answer = userAnswers[essayIndex];
 
@@ -106,19 +146,18 @@ export const useStudySession = (user) => {
     dismissKeyboard();
 
     try {
-      // ★修正: 講義内容を証拠として渡し、厳密な判定を行わせる
       const prompt = `
       あなたは「難関大学入試の採点官」です。
       以下の「講義テキスト」の内容を正解の基準として、ユーザーの回答を厳格に採点してください。
 
       【講義テキスト（正解の根拠）】
-      ${dailyData.lecture}
+      ${dataContent.lecture}
 
       【問題】
-      ${dailyData.essay.q}
+      ${dataContent.essay.q}
 
       【模範解答】
-      ${dailyData.essay.model}
+      ${dataContent.essay.model}
 
       【ユーザーの回答】
       ${answer}
@@ -137,11 +176,11 @@ export const useStudySession = (user) => {
       res.score.k = res.score.k ?? 0; res.score.l = res.score.l ?? 0;
       setEssayGrading(res);
       
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress', `${getTodayString()}_${activeSession}`), 
-        { essayGrading: res, userAnswers, completed: true }, { merge: true });
+      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${activeSession}`), 
+        { essayGrading: res, userAnswers, completed: true }, { merge: true }); // 採点完了＝セッション完了扱い
         
       const today = getTodayString();
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'stats', 'heatmap'), 
+      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
         { data: { [today]: increment(1) } }, { merge: true });
       
       setHeatmapStats(prev => ({
@@ -166,11 +205,11 @@ export const useStudySession = (user) => {
     const res = { score: { k: 0, l: 0 }, feedback: "模範解答を写経しましょう。", overall_advice: "解説を読み込みましょう。" };
     setEssayGrading(res);
     
-    await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress', `${getTodayString()}_${activeSession}`), 
+    await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${getTodayString()}_${activeSession}`), 
       { essayGrading: res, userAnswers, completed: true }, { merge: true });
       
     const today = getTodayString();
-    await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'stats', 'heatmap'), 
+    await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
       { data: { [today]: increment(1) } }, { merge: true });
 
     setHeatmapStats(prev => ({
@@ -182,8 +221,14 @@ export const useStudySession = (user) => {
     setIsAnswered(true);
   };
 
+  // 初期ロード実行 (userIdが変わったら再ロード)
+  useState(() => {
+      loadHistoryMeta();
+  }, [userId]);
+
   return {
-    dailyData, setDailyData,
+    currentData, // App.jsxでの呼び名に合わせる
+    setDailyData,
     userAnswers, setUserAnswers,
     qIndex, setQIndex,
     isAnswered, setIsAnswered,
@@ -195,8 +240,11 @@ export const useStudySession = (user) => {
     heatmapStats, setHeatmapStats,
     processingError,
     scoreRef,
-    loadSession,
-    loadHistoryMeta,
+    
+    // 公開関数
+    switchSession, // App.jsx用
+    loadSession,   // 直接呼ぶ場合用
+    markAsCompleted, // App.jsx用
     saveProgress,
     handleGrade,
     handleGiveUp

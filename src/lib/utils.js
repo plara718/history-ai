@@ -78,26 +78,27 @@ export const validateLessonData = (data) => {
       return item;
   };
 
-  // --- 4択問題（旧True/False）の補正 ---
+  // --- 4択・正誤問題の補正 ---
   if (!Array.isArray(data.true_false)) {
       data.true_false = [];
   }
   data.true_false = data.true_false.map(item => normalizeQuestion(item));
 
-  while (data.true_false.length < 5) {
+  // ★修正: 必須数を「5」から現在の仕様である「3」に変更
+  while (data.true_false.length < 3) {
       data.true_false.push({
           q: "（AIの問題生成数が不足しています）",
-          options: ["A", "B", "C", "D"],
+          options: ["True", "False"],
           correct: 0,
           hint: "",
-          exp: "システムエラー"
+          exp: "再生成をお試しください。"
       });
   }
 
   data.true_false.forEach(q => {
-      // optionsの救出（choices等の別名もチェック）
+      // optionsの救出
       if (!Array.isArray(q.options) || q.options.length < 2) {
-          q.options = q.choices || q.items || ["(選択肢なし)", "(選択肢なし)", "(選択肢なし)", "(選択肢なし)"];
+          q.options = q.choices || q.items || ["True", "False"];
       }
       if (typeof q.correct !== 'number') q.correct = 0;
   });
@@ -109,7 +110,6 @@ export const validateLessonData = (data) => {
   data.sort = data.sort.map(item => {
       const q = normalizeQuestion(item);
       
-      // ★修正: itemsがない場合、optionsやchoices、eventsなどから救出する
       if (!Array.isArray(q.items) || q.items.length === 0) {
            q.items = q.options || q.choices || q.events || q.list || q.words || [];
       }
@@ -124,6 +124,16 @@ export const validateLessonData = (data) => {
       }
       return q;
   });
+
+  // ★追加: 整序問題も最低2問確保（不足時はダミー追加）
+  while (data.sort.length < 2) {
+      data.sort.push({
+          q: "（整序問題の生成数が不足しています）",
+          items: ["A", "B", "C", "D"],
+          correct_order: [0, 1, 2, 3],
+          exp: "再生成をお試しください。"
+      });
+  }
   
   // --- 記述問題の補正 ---
   if (!data.essay || typeof data.essay !== 'object') {

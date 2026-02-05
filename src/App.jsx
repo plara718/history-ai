@@ -9,6 +9,7 @@ import { db, auth } from './lib/firebase';
 import { callAI } from './lib/api';
 import { getTodayString, scrollToTop, getFlattenedQuestions } from './lib/utils';
 import { Brain, BookOpen, CheckCircle } from 'lucide-react';
+import { APP_ID, MAX_DAILY_SESSIONS } from './lib/constants'; // ★定数ファイルからインポート
 
 // Hooks
 import useAuthUser from './hooks/useAuthUser';
@@ -33,8 +34,6 @@ import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast'; 
 
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
-const APP_ID = 'history_app_v1';
-const MAX_DAILY_SESSIONS = 3;
 
 const theme = createTheme({
   typography: {
@@ -51,18 +50,15 @@ const theme = createTheme({
 });
 
 const App = () => {
-  // --- 1. 認証管理 ---
   const { user, loading: authLoading } = useAuthUser(); 
   const [activeTab, setActiveTab] = useState('train');
   
-  // --- 2. 学習設定 ---
   const [learningMode, setLearningMode] = useState('general'); 
   const [difficulty, setDifficulty] = useState('standard');
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [toast, setToast] = useState(null);
   
-  // --- 3. 画面状態 ---
   const [step, setStep] = useState('start'); 
   const [showHint, setShowHint] = useState(false);
   const [reflection, setReflection] = useState("");
@@ -70,16 +66,15 @@ const App = () => {
   const [simplifiedLecture, setSimplifiedLecture] = useState(null);
   const [regenCount, setRegenCount] = useState(0);
 
-  // --- 4. 復習モード & 履歴詳細用 ---
+  // 復習モード用
   const [reviewQuestions, setReviewQuestions] = useState([]);
   const [reviewQIndex, setReviewQIndex] = useState(0);
   const [reviewResult, setReviewResult] = useState(null);
   const [reviewUserAnswer, setReviewUserAnswer] = useState(null);
   
-  // ★追加: 履歴詳細表示用のステート
+  // 履歴詳細用
   const [selectedHistoryLog, setSelectedHistoryLog] = useState(null);
 
-  // --- Hooks ---
   const session = useStudySession(user?.uid);
   const { generateDailyLesson, isProcessing: isGenerating } = useLessonGenerator(
     import.meta.env.VITE_GEMINI_API_KEY, 
@@ -107,8 +102,6 @@ const App = () => {
         fetchRegenStats();
     }
   }, [user]);
-
-  // --- アクションハンドラー ---
 
   const handleLogout = async () => {
     try {
@@ -225,8 +218,6 @@ const App = () => {
     }
   };
 
-  // --- レンダリング分岐 ---
-  
   const renderTrainingTab = () => {
     if (isGenerating || isLoading) return <SmartLoader message="AI講師が準備しています..." />;
 
@@ -277,14 +268,21 @@ const App = () => {
             onSwitchSession={(n) => { session.switchSession(n); setStep('start'); scrollToTop(); }}
             onResume={() => { 
                 if (sessionData) {
+                    // 完了済みならまとめ画面へ
                     if (session.historyMeta[session.viewingSession]?.completed) {
                         setStep('summary');
-                    } else if (Object.keys(session.userAnswers).length > 0) {
+                    } else if (session.userAnswers && Object.keys(session.userAnswers).length > 0) {
+                        // 回答データがあれば続きの問題へ
                         setStep('questions');
                     } else {
+                        // なければ講義から
                         setStep('lecture');
                     }
                     scrollToTop(); 
+                } else {
+                    // データがまだロードされていない場合は再ロードを試みる
+                    session.switchSession(session.viewingSession);
+                    setToast({ message: "データを読み込んでいます...", type: "info" });
                 }
             }}
             onRegenerate={handleRegenerate}
@@ -379,7 +377,6 @@ const App = () => {
     return null;
   };
 
-  // --- メイン描画 ---
   if (authLoading) return <SmartLoader message="認証中..." />;
   
   if (currentHash === '#/admin') {
@@ -397,7 +394,7 @@ const App = () => {
         {activeTab === 'train' && renderTrainingTab()}
         {activeTab === 'library' && <VocabularyLibrary userId={user.uid} />}
         
-        {/* ★変更: 履歴詳細表示の分岐 */}
+        {/* 記録タブ: 一覧 or 詳細表示 */}
         {activeTab === 'log' && (
             selectedHistoryLog ? (
                 <SummaryScreen
@@ -430,8 +427,8 @@ const App = () => {
         <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} user={user} />
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-        {/* 履歴詳細表示中はタブバーを隠す、またはそのまま表示でも可（ここではstart画面時のみ表示する仕様を踏襲） */}
-        {step === 'start' && !selectedHistoryLog && (
+        {/* スタート画面 または 履歴一覧画面の時のみナビゲーションを表示 */}
+        {(step === 'start' && !selectedHistoryLog) && (
           <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000 }} elevation={3}>
             <BottomNavigation showLabels value={activeTab} onChange={(e, n) => {setActiveTab(n); scrollToTop();}}>
               <BottomNavigationAction label="学習" value="train" icon={<Brain />} />

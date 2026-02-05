@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Button, Typography, Container, Stack, Paper, Chip, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle } from 'lucide-react';
-import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS } from '../lib/constants';
+import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants'; // ★定数を追加インポート
 
 const StartScreen = ({ 
   activeSession, viewingSession, isDailyLimitReached,
@@ -10,7 +10,7 @@ const StartScreen = ({
   difficulty, setDifficulty,
   generateDailyLesson, startWeaknessReview,
   isProcessing, historyMeta, onSwitchSession,
-  hasUnfinishedSession, onResume, onRegenerate, regenCount,
+  onResume, onRegenerate, regenCount,
   onLogout, userId, openSettings 
 }) => {
   
@@ -19,6 +19,9 @@ const StartScreen = ({
   
   const isViewingCompleted = historyMeta && historyMeta[viewingSession]?.completed;
   const isViewingExists = historyMeta && historyMeta[viewingSession]?.exists;
+
+  // ★現在選択されている難易度の説明を取得
+  const currentDifficultyDesc = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty]?.desc || "設定に合わせてAIが調整します";
 
   return (
     <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 8 }}>
@@ -113,20 +116,27 @@ const StartScreen = ({
                </FormControl>
             )}
 
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-                <Typography variant="caption" fontWeight="bold" color="text.secondary">難易度:</Typography>
-                {['easy', 'standard', 'hard'].map(d => (
-                    <Chip 
-                        key={d} 
-                        label={d === 'easy' ? '基本' : d === 'standard' ? '標準' : '発展'} 
-                        onClick={() => setDifficulty(d)}
-                        color={difficulty === d ? (isSchool ? 'success' : 'primary') : 'default'}
-                        variant={difficulty === d ? 'filled' : 'outlined'}
-                        size="small"
-                        sx={{ fontWeight: 'bold' }}
-                    />
-                ))}
-            </Stack>
+            <Box>
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" mb={1}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary">難易度:</Typography>
+                    {['easy', 'standard', 'hard'].map(d => (
+                        <Chip 
+                            key={d} 
+                            label={d === 'easy' ? '基本' : d === 'standard' ? '標準' : '発展'} 
+                            onClick={() => setDifficulty(d)}
+                            color={difficulty === d ? (isSchool ? 'success' : 'primary') : 'default'}
+                            variant={difficulty === d ? 'filled' : 'outlined'}
+                            size="small"
+                            sx={{ fontWeight: 'bold' }}
+                        />
+                    ))}
+                </Stack>
+                
+                {/* ★復活: 難易度の説明文 */}
+                <Typography variant="caption" display="block" textAlign="center" color="text.secondary" sx={{ bgcolor: 'slate.50', py: 0.5, borderRadius: 1 }}>
+                    {currentDifficultyDesc}
+                </Typography>
+            </Box>
           </Stack>
         )}
 
@@ -134,7 +144,6 @@ const StartScreen = ({
         <Stack spacing={2}>
             {isViewingExists ? (
                 isViewingCompleted ? (
-                    // ★修正: 完了済みの場合、結果確認ボタンを表示
                     <Button 
                         fullWidth 
                         variant="outlined" 

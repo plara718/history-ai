@@ -3,7 +3,7 @@
  */
 
 // アプリケーション識別子 (Firestoreのパス用)
-export const APP_ID = "history-ai-drill-v1";
+export const APP_ID = 'history_app_v1';
 
 // 1日の最大学習セッション数
 export const MAX_DAILY_SESSIONS = 3;

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Button, Typography, Paper, Container, Stack, Chip, Alert, Divider } from '@mui/material';
-import { CheckCircle, AlertTriangle, ChevronRight, ArrowRight } from 'lucide-react';
+import { CheckCircle, AlertTriangle, ChevronRight, ArrowRight, Check, X } from 'lucide-react';
 import MarkdownLite from '../components/MarkdownLite';
 
 const ReviewScreen = ({ 
@@ -12,12 +12,9 @@ const ReviewScreen = ({
 
   const currentQ = reviewProblems[qIndex];
   const totalQ = reviewProblems.length;
-
-  // 防御処理: データがない場合は空配列
   const options = currentQ.options || [];
   const items = currentQ.items || [];
 
-  // 整序問題用トグル操作
   const handleSortToggle = (itemIndex) => {
     if (isAnswered) return;
     const currentOrder = reviewUserAnswer || [];
@@ -30,25 +27,19 @@ const ReviewScreen = ({
     setReviewUserAnswer(newOrder);
   };
 
-  // ★追加機能: 解説文の中にある「0→1→2」のような数字の列を「A→B→C」に自動変換して読みやすくする
   const formatExplanation = (text) => {
     if (!text) return "";
-    
-    // パターン検出: "数字→数字" の並びを見つける (例: "0→1→3→2")
     return text.replace(/(\d+)(?:\s*→\s*)(\d+)(?:(?:\s*→\s*)(\d+))*/g, (match) => {
-        // マッチした部分（"0→1..."）を分解してアルファベットに変換
         return match.split('→').map(numStr => {
             const num = parseInt(numStr.trim());
-            // 0=A, 1=B, 2=C ... 25=Z
             if (!isNaN(num) && num >= 0 && num < 26) {
-                return String.fromCharCode(65 + num); // 65は 'A' の文字コード
+                return String.fromCharCode(65 + num);
             }
-            return numStr; // 変換できない場合はそのまま
+            return numStr;
         }).join(' → ');
     });
   };
 
-  // 表示用の解説文を用意
   const cleanExplanation = formatExplanation(currentQ.exp || currentQ.explanation || currentQ.解説 || "解説はありません。");
 
   return (
@@ -74,35 +65,68 @@ const ReviewScreen = ({
           </Typography>
       </Paper>
 
-      {/* 回答エリア */}
       <Box mb={4}>
           {currentQ.type === 'true_false' ? (
               <Stack spacing={2}>
                   {options.map((opt, i) => {
+                      const isSelected = reviewUserAnswer === i;
+                      const isCorrectOption = i === currentQ.correct;
+
                       let bg = 'white';
                       let border = 'slate.200';
-                      // 正誤判定後の色付け
+                      
                       if (isAnswered) {
-                          if (i === currentQ.correct) { bg = 'emerald.50'; border = 'emerald.500'; } // 正解は緑
-                          else if (i === reviewUserAnswer) { bg = 'rose.50'; border = 'rose.500'; } // 間違った選択は赤
+                          if (isCorrectOption) { bg = 'emerald.50'; border = 'emerald.500'; }
+                          else if (isSelected) { bg = 'rose.50'; border = 'rose.500'; }
                       }
+
                       return (
                           <button
                               key={i}
                               onClick={() => !isAnswered && handleReviewAnswer(i)}
                               className={`w-full p-4 rounded-xl border-2 text-left transition-all font-medium ${!isAnswered && 'hover:bg-slate-50'}`}
-                              style={{ backgroundColor: isAnswered ? undefined : bg, borderColor: isAnswered ? undefined : border.replace('.', '-') }}
+                              style={{ 
+                                  backgroundColor: isAnswered ? undefined : bg, 
+                                  borderColor: isAnswered ? undefined : border.replace('.', '-') 
+                              }}
                           >
-                               {/* 選択肢番号を表示 (A, B, C...) */}
-                               <span className="font-bold mr-2 text-slate-400">{String.fromCharCode(65 + i)}.</span>
-                               <MarkdownLite text={opt} />
+                               <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+                                  <Box flex={1}>
+                                      <span className="font-bold mr-2 text-slate-400">{String.fromCharCode(65 + i)}.</span>
+                                      <MarkdownLite text={opt} />
+                                  </Box>
+
+                                  {/* 結果バッジ */}
+                                  {isAnswered && (
+                                      <Box flexShrink={0}>
+                                          {isSelected && (
+                                              <Chip 
+                                                  label="あなたの回答" 
+                                                  size="small" 
+                                                  color={isCorrectOption ? "success" : "error"} 
+                                                  variant="filled" 
+                                                  icon={isCorrectOption ? <Check size={14}/> : <X size={14}/>}
+                                                  sx={{ fontWeight: 'bold' }} 
+                                              />
+                                          )}
+                                          {!isSelected && isCorrectOption && (
+                                              <Chip 
+                                                  label="正解" 
+                                                  size="small" 
+                                                  color="success" 
+                                                  variant="outlined" 
+                                                  sx={{ fontWeight: 'bold', bgcolor: 'white' }} 
+                                              />
+                                          )}
+                                      </Box>
+                                  )}
+                               </Stack>
                           </button>
                       );
                   })}
               </Stack>
           ) : (
               <Box>
-                  {/* 整序: 選択済みのアイテムを表示 */}
                   <Box mb={2} p={2} bgcolor="slate.100" borderRadius={2} minHeight={60} display="flex" flexWrap="wrap" gap={1} alignItems="center">
                       {(reviewUserAnswer || []).length === 0 && (
                           <Typography variant="caption" color="text.disabled">下の選択肢を順番にタップしてください</Typography>
@@ -111,7 +135,7 @@ const ReviewScreen = ({
                           <React.Fragment key={i}>
                               {i > 0 && <ArrowRight size={14} className="text-slate-400" />}
                               <Chip 
-                                label={`${String.fromCharCode(65 + idx)}. ${items[idx]}`} // A. アイテム名
+                                label={`${String.fromCharCode(65 + idx)}. ${items[idx]}`}
                                 onDelete={!isAnswered ? () => handleSortToggle(idx) : undefined}
                                 color="primary" 
                                 variant={isAnswered ? "filled" : "outlined"}
@@ -121,12 +145,11 @@ const ReviewScreen = ({
                       ))}
                   </Box>
 
-                  {/* 整序: 選択肢ボタン */}
                   <Stack direction="row" flexWrap="wrap" gap={1} justifyContent="center" mb={2}>
                       {items.map((item, i) => (
                           <Chip 
                               key={i} 
-                              label={`${String.fromCharCode(65 + i)}. ${item}`} // ボタンにもA, B...をつける
+                              label={`${String.fromCharCode(65 + i)}. ${item}`}
                               onClick={() => handleSortToggle(i)} 
                               disabled={isAnswered || (reviewUserAnswer || []).includes(i)}
                               variant="outlined" 
@@ -164,11 +187,10 @@ const ReviewScreen = ({
                       正解と解説
                   </Typography>
 
-                  {/* 整序問題なら、わかりやすく正解ルートを図示するエリア */}
                   {currentQ.type === 'sort' && currentQ.answer && Array.isArray(currentQ.answer) && (
                       <Box mb={3} p={2} bgcolor="white" borderRadius={2} border="1px dashed" borderColor="slate.300">
                            <Typography variant="caption" display="block" color="text.secondary" mb={1}>
-                               正しい順序:
+                                正しい順序:
                            </Typography>
                            <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
                                {currentQ.answer.map((idx, i) => (
@@ -187,7 +209,6 @@ const ReviewScreen = ({
                   
                   <Divider sx={{ mb: 2 }} />
 
-                  {/* 解説本文 (自動補正済み) */}
                   <Box sx={{ typography: 'body2', color: 'slate.600', lineHeight: 1.8 }}>
                       <MarkdownLite text={cleanExplanation} />
                   </Box>

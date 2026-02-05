@@ -1,31 +1,87 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Container, Stack, TextField, InputAdornment, Chip } from '@mui/material';
-import { collection, query, getDocs } from 'firebase/firestore';
+import { Box, Typography, Paper, Container, Stack, TextField, InputAdornment, Chip, Button, CircularProgress } from '@mui/material';
+import { collection, query, getDocs, doc, setDoc, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { APP_ID } from '../lib/constants'; // constantsのパスを確認
-import { Search, Book, Bookmark, Filter } from 'lucide-react';
+import { APP_ID } from '../lib/constants';
+import { Search, Book, Bookmark, Filter, RefreshCw } from 'lucide-react';
 
 const VocabularyLibrary = ({ userId }) => {
   const [terms, setTerms] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  // 用語データの取得
+  const fetchTerms = async () => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary'));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => d.data());
+      setTerms(list);
+      
+      // もし用語が0件なら、自動同期を試みる
+      if (list.length === 0) {
+          handleSyncFromHistory();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchTerms = async () => {
-      if (!userId) return;
-      try {
-        const q = query(collection(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary'));
-        const snap = await getDocs(q);
-        const list = snap.docs.map(d => d.data());
-        setTerms(list);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchTerms();
   }, [userId]);
+
+  // ★追加: 過去の学習履歴から用語を復旧・同期する機能
+  const handleSyncFromHistory = async () => {
+      if (!userId || syncing) return;
+      setSyncing(true);
+      try {
+          // 過去の学習データを全取得
+          const q = query(collection(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress'));
+          const snap = await getDocs(q);
+          
+          let addedCount = 0;
+          const promises = [];
+
+          snap.forEach((docSnap) => {
+              const data = docSnap.data();
+              // データ構造の揺れに対応（content内にある場合と直下にある場合）
+              const content = data.content || data;
+              
+              if (content.essential_terms && Array.isArray(content.essential_terms)) {
+                  content.essential_terms.forEach(term => {
+                      // 用語保存のPromiseを作成
+                      const p = setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary', term.term), {
+                          term: term.term,
+                          def: term.def,
+                          addedAt: new Date().toISOString(),
+                          count: 1 // 簡易的に1とする
+                      }, { merge: true });
+                      promises.push(p);
+                      addedCount++;
+                  });
+              }
+          });
+
+          await Promise.all(promises);
+          
+          if (addedCount > 0) {
+              // 同期完了後に再取得
+              const newQ = query(collection(db, 'artifacts', APP_ID, 'users', userId, 'vocabulary'));
+              const newSnap = await getDocs(newQ);
+              setTerms(newSnap.docs.map(d => d.data()));
+          }
+      } catch(e) {
+          console.error("同期エラー", e);
+      } finally {
+          setSyncing(false);
+      }
+  };
 
   const filteredTerms = terms.filter(t => 
       t.term.includes(searchQuery) || t.def.includes(searchQuery)
@@ -61,6 +117,22 @@ const VocabularyLibrary = ({ userId }) => {
               }}
           />
       </Paper>
+
+      {/* 手動同期ボタン (用語が少ない時に表示) */}
+      {terms.length === 0 && !loading && (
+          <Box textAlign="center" mb={4}>
+              <Button 
+                  startIcon={syncing ? <CircularProgress size={16} color="inherit"/> : <RefreshCw size={16} />}
+                  onClick={handleSyncFromHistory}
+                  disabled={syncing}
+                  variant="outlined"
+                  size="small"
+                  sx={{ borderRadius: 4 }}
+              >
+                  {syncing ? "履歴から復元中..." : "学習履歴から用語を取り込む"}
+              </Button>
+          </Box>
+      )}
 
       <Stack spacing={2}>
           {loading ? (

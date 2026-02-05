@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Box, Button, Typography, Paper, Container, LinearProgress, Chip, Stack, Alert, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-import { CheckCircle, HelpCircle, ChevronRight, AlertTriangle } from 'lucide-react';
+import { CheckCircle, HelpCircle, ChevronRight, AlertTriangle, Check, X } from 'lucide-react';
 import { getFlattenedQuestions } from '../lib/utils';
-import MarkdownLite from '../components/MarkdownLite'; // 追加
+import MarkdownLite from '../components/MarkdownLite';
 
 const QuestionsScreen = ({ 
   qIndex, dailyData, essayGrading, 
@@ -18,7 +18,6 @@ const QuestionsScreen = ({
   const totalQ = flatQuestions.length;
   const progress = ((qIndex) / totalQ) * 100;
   
-  // ユーザーの回答操作
   const handleOptionSelect = (idx) => {
     if (isAnswered || isReadOnly) return;
     const newAns = { ...userAnswers, [qIndex]: idx };
@@ -44,18 +43,16 @@ const QuestionsScreen = ({
     saveProgress(userAnswers, qIndex);
   };
 
-  // 記述問題の操作
   const handleEssayChange = (e) => {
     if (isAnswered || isReadOnly) return;
     setUserAnswers({ ...userAnswers, [qIndex]: e.target.value });
   };
 
-  // 正誤判定（表示用）
   const isCorrect = (() => {
       if (!isAnswered) return null;
       if (currentQ.type === 'true_false') return userAnswers[qIndex] === currentQ.correct;
       if (currentQ.type === 'sort') return JSON.stringify(userAnswers[qIndex]) === JSON.stringify(currentQ.correct_order);
-      return null; // essayは別扱い
+      return null;
   })();
 
   const EssayFeedback = () => {
@@ -94,7 +91,6 @@ const QuestionsScreen = ({
 
           <Box sx={{ minHeight: 80 }}>
               <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.6, color: 'slate.800' }}>
-                  {/* MarkdownLiteを使って問題文中の強調表示を反映 */}
                   <MarkdownLite text={currentQ.q} />
               </Typography>
           </Box>
@@ -106,19 +102,25 @@ const QuestionsScreen = ({
           {currentQ.type === 'true_false' && (
               <Stack spacing={2}>
                   {currentQ.options.map((opt, i) => {
+                      const isSelected = userAnswers[qIndex] === i;
+                      const isCorrectOption = i === currentQ.correct;
+                      
                       let btnColor = 'white';
                       let borderColor = 'slate.200';
                       let textColor = 'slate.700';
 
                       if (isAnswered) {
-                          if (i === currentQ.correct) {
+                          if (isCorrectOption) {
+                              // 正解の選択肢
                               btnColor = 'emerald.50'; borderColor = 'emerald.500'; textColor = 'emerald.700';
-                          } else if (i === userAnswers[qIndex]) {
+                          } else if (isSelected) {
+                              // 間違って選んだ選択肢
                               btnColor = 'rose.50'; borderColor = 'rose.500'; textColor = 'rose.700';
                           } else {
+                              // その他
                               borderColor = 'transparent'; textColor = 'slate.400';
                           }
-                      } else if (userAnswers[qIndex] === i) {
+                      } else if (isSelected) {
                           borderColor = 'indigo.500';
                       }
 
@@ -127,13 +129,45 @@ const QuestionsScreen = ({
                               key={i}
                               onClick={() => handleOptionSelect(i)}
                               className={`
-                                  w-full p-4 rounded-xl border-2 text-left transition-all font-medium text-base
+                                  w-full p-4 rounded-xl border-2 text-left transition-all font-medium text-base relative
                                   ${isAnswered ? 'cursor-default' : 'hover:bg-slate-50 active:scale-[0.99]'}
                               `}
-                              style={{ backgroundColor: isAnswered && i !== currentQ.correct && i !== userAnswers[qIndex] ? '#f8fafc' : undefined, borderColor: borderColor.replace('.', '-'), color: textColor.replace('.', '-') }} // Tailwind class substitution hack or explicit style
+                              style={{ 
+                                  backgroundColor: isAnswered && !isCorrectOption && !isSelected ? '#f8fafc' : undefined, 
+                                  borderColor: borderColor.replace('.', '-'), 
+                                  color: textColor.replace('.', '-') 
+                              }} 
                           >
-                              {/* 選択肢にもMarkdown適用 */}
-                              <MarkdownLite text={opt} />
+                              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+                                  <Box flex={1}>
+                                      <MarkdownLite text={opt} />
+                                  </Box>
+                                  
+                                  {/* 結果表示バッジ */}
+                                  {isAnswered && (
+                                      <Box flexShrink={0}>
+                                          {isSelected && (
+                                              <Chip 
+                                                  label="あなたの回答" 
+                                                  size="small" 
+                                                  color={isCorrectOption ? "success" : "error"} 
+                                                  variant="filled" 
+                                                  icon={isCorrectOption ? <Check size={14}/> : <X size={14}/>}
+                                                  sx={{ fontWeight: 'bold' }} 
+                                              />
+                                          )}
+                                          {!isSelected && isCorrectOption && (
+                                              <Chip 
+                                                  label="正解" 
+                                                  size="small" 
+                                                  color="success" 
+                                                  variant="outlined" 
+                                                  sx={{ fontWeight: 'bold', bgcolor: 'white' }} 
+                                              />
+                                          )}
+                                      </Box>
+                                  )}
+                              </Stack>
                           </button>
                       );
                   })}
@@ -226,7 +260,6 @@ const QuestionsScreen = ({
                       解説
                   </Typography>
                   <Box sx={{ typography: 'body2', color: 'slate.600', lineHeight: 1.7 }}>
-                      {/* 解説文のMarkdown適用 */}
                       <MarkdownLite text={currentQ.exp} />
                   </Box>
               </Paper>
@@ -244,7 +277,6 @@ const QuestionsScreen = ({
           </div>
       )}
 
-      {/* 記述問題完了時の次へボタン */}
       {isAnswered && currentQ.type === 'essay' && !isProcessing && (
            <Button 
               variant="contained" 
@@ -258,7 +290,6 @@ const QuestionsScreen = ({
           </Button>
       )}
 
-      {/* ヒント機能（記述のみ） */}
       {currentQ.type === 'essay' && !isAnswered && (
           <Box mt={2} textAlign="center">
               <Button 
@@ -272,7 +303,6 @@ const QuestionsScreen = ({
           </Box>
       )}
 
-      {/* ヒントダイアログ */}
       <Dialog open={showHint} onClose={() => setShowHint(false)}>
           <DialogTitle sx={{ fontWeight: 'bold' }}>ヒント</DialogTitle>
           <DialogContent>

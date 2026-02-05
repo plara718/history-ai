@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography, Paper, Container, Stack, Avatar } from '@mui/material';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { APP_ID } from '../lib/constants';
+import { APP_ID } from '../lib/constants'; // ★定数ファイルからインポート
 import { Calendar, Trophy, TrendingUp, Clock, CheckCircle, ChevronRight } from 'lucide-react';
 
 const LogScreen = ({ heatmapStats, userId, onSelectSession }) => {
@@ -110,7 +110,7 @@ const LogScreen = ({ heatmapStats, userId, onSelectSession }) => {
                             sx={{ 
                                 lineHeight: 1.5, 
                                 mb: 0.5,
-                                // 改行を許可するスタイル
+                                // ★修正: 長いタイトルを改行させるスタイル
                                 whiteSpace: 'normal',
                                 wordBreak: 'break-word'
                             }}

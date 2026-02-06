@@ -3,7 +3,7 @@ import {
   Container, CssBaseline, ThemeProvider, createTheme, 
   Paper, BottomNavigation, BottomNavigationAction, Box, Button
 } from '@mui/material';
-import { collection, query, getDocs, limit, orderBy, doc, getDoc, setDoc, runTransaction } from 'firebase/firestore'; 
+import { collection, query, getDocs, limit, orderBy, doc, getDoc, setDoc, runTransaction, onSnapshot } from 'firebase/firestore'; 
 import { signOut } from 'firebase/auth'; 
 import { db, auth } from './lib/firebase';
 import { callAI } from './lib/api';
@@ -84,16 +84,20 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentHash, setCurrentHash] = useState(window.location.hash);
 
-  // グローバル設定（appMode）の取得
+  // ★重要：ユーザー個別の設定をリアルタイム監視するように変更
   useEffect(() => {
-    const fetchGlobalSettings = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
-        if (snap.exists()) setAppMode(snap.data().appMode || 'production');
-      } catch (e) { console.warn("設定取得失敗", e); }
-    };
-    fetchGlobalSettings();
-  }, []);
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'settings', 'ai_config'), (snap) => {
+      if (snap.exists()) {
+        setAppMode(snap.data().appMode || 'production');
+      } else {
+        // 個別設定がなければデフォルトをセット
+        setAppMode('production');
+      }
+    }, (err) => console.warn("設定同期失敗", err));
+
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     const handleHashChange = () => setCurrentHash(window.location.hash);
@@ -163,7 +167,8 @@ const App = () => {
       if(!session.currentData) return;
       setIsLoading(true);
       try {
-          const res = await callAI(`要約依頼:\n${session.currentData.content.lecture}`, "JSON:{text}", apiKey);
+          // callAIにユーザーIDを渡すように強化
+          const res = await callAI(`要約依頼:\n${session.currentData.content.lecture}`, "JSON:{text}", apiKey, user.uid);
           setSimplifiedLecture(res.text);
           setLectureMode('simple');
       } catch(e) { console.error(e); } 
@@ -231,8 +236,7 @@ const App = () => {
             generateDailyLesson={handleGenerate}
             startWeaknessReview={async () => {
                 setIsLoading(true);
-                // 復習ロジック（簡易化）
-                setStep('review'); // 実際はデータ取得後に
+                setStep('review');
                 setIsLoading(false);
             }}
             isProcessing={isGenerating || isLoading}
@@ -310,7 +314,7 @@ const App = () => {
 
     if (step === 'summary') {
         return <SummaryScreen 
-            dailyData={sessionData} // 構造化Markdown用にセッション全体を渡す
+            dailyData={sessionData} 
             userAnswers={session.userAnswers}
             essayGrading={session.essayGrading}
             activeSession={session.activeSession}
@@ -333,6 +337,7 @@ const App = () => {
 
   if (authLoading) return <SmartLoader message="認証中..." />;
   
+  // 管理者画面の出し分け
   if (currentHash === '#/admin') {
       if (!user || user.uid !== ADMIN_UID) return <Box p={4}>管理者権限がありません<Button onClick={()=>window.location.hash=''}>戻る</Button></Box>;
       return <AdminDashboard />;
@@ -371,7 +376,8 @@ const App = () => {
                 apiKey={apiKey} setApiKey={setApiKey}
                 onClose={() => setIsSettingsOpen(false)} 
                 uid={user.uid}
-                onAdmin={() => window.location.hash = '#/admin'}
+                // 管理者導線の復元：モーダルを閉じてからハッシュを変更
+                onAdmin={() => { setIsSettingsOpen(false); window.location.hash = '#/admin'; }}
                 isAdminMode={user.uid === ADMIN_UID}
                 adminApiKey={adminApiKey} setAdminApiKey={setAdminApiKey}
                 appMode={appMode} setAppMode={setAppMode}

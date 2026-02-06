@@ -3,22 +3,29 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { APP_ID } from './constants';
 
-export const callAI = async (actionName, prompt, apiKey) => {
+export const callAI = async (actionName, prompt, apiKey, userId) => {
   if (!apiKey) throw new Error("APIキーが設定されていません。");
 
-  // 1. Firestoreからグローバル設定（動作モード）を直接取得
+  // 1. 設定の取得（個人設定 ＞ 全体設定 ＞ デフォルト）
   let appMode = 'production';
   try {
-    const settingsSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
-    if (settingsSnap.exists()) {
-      appMode = settingsSnap.data().appMode || 'production';
+    // A. まずユーザー個別の設定を確認
+    const userSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'settings', 'ai_config'));
+    
+    if (userSnap.exists()) {
+      appMode = userSnap.data().appMode;
+    } else {
+      // B. 個別設定がなければ全体設定を確認
+      const globalSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
+      if (globalSnap.exists()) {
+        appMode = globalSnap.data().appMode || 'production';
+      }
     }
   } catch (e) {
-    console.warn("[AI] 設定取得失敗、デフォルト(production)を使用します", e);
+    console.warn("[AI] 設定取得プロセスでエラーが発生しました。デフォルトを使用します。", e);
   }
 
   // 2. モードに応じた最新モデルの割り当て
-  // 本番: Gemini 2.5 Flash / テスト: Gemma 3
   const modelName = appMode === 'production' ? "gemini-2.5-flash" : "gemma-3-27b-it";
   
   const MAX_RETRIES = 2; 
@@ -28,7 +35,7 @@ export const callAI = async (actionName, prompt, apiKey) => {
   let attempt = 0;
   let lastError = null;
 
-  console.log(`[AI Config] Mode: ${appMode.toUpperCase()}, Model: ${modelName}`);
+  console.log(`[AI Config] Mode: ${appMode.toUpperCase()}, Model: ${modelName}, User: ${userId}`);
 
   while (attempt <= MAX_RETRIES) {
     try {
@@ -72,12 +79,6 @@ export const callAI = async (actionName, prompt, apiKey) => {
       lastError = e;
       const errorMsg = e.message || "";
 
-      // 404エラー（モデル名間違い）
-      if (errorMsg.includes("404") && errorMsg.includes("not found")) {
-          throw new Error(`モデル(${modelName})が見つかりません。APIキーまたはモデルIDを確認してください。`);
-      }
-
-      // 制限検知 (429)
       if (errorMsg.includes("429") || errorMsg.includes("Quota exceeded")) {
           throw new Error("⚠️ AIの利用制限にかかりました。少し時間を置いてください。");
       }

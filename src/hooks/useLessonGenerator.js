@@ -9,6 +9,48 @@ export const useLessonGenerator = (apiKey, userId) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [genError, setGenError] = useState(null);
 
+  /**
+   * 今日のレッスンデータがあれば取得（再開用）
+   * @param {number} sessionNum 
+   */
+  const fetchTodayLesson = async (sessionNum) => {
+    if (!userId) return null;
+    const today = getTodayString();
+    const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+    
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        console.log("Found existing lesson data for today.");
+        return snap.data(); // 保存されていたデータを返す
+      }
+    } catch (e) {
+      console.error("Fetch error:", e);
+    }
+    return null;
+  };
+
+  /**
+   * 進捗状況を保存（こまめに呼ぶ用）
+   * @param {number} sessionNum 
+   * @param {object} progressData 更新したいデータ（{ currentStep: 'quiz', progress: {...} } など）
+   */
+  const saveProgress = async (sessionNum, progressData) => {
+    if (!userId) return;
+    const today = getTodayString();
+    const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+    
+    try {
+      // 既存データにマージ保存
+      await setDoc(docRef, progressData, { merge: true });
+    } catch (e) {
+      console.error("Save progress error:", e);
+    }
+  };
+
+  /**
+   * 新規レッスンをAI生成
+   */
   const generateDailyLesson = async (learningMode, difficulty, selectedUnit, sessionNum) => {
     if (!apiKey || !userId) {
       setGenError("APIキーまたはユーザーIDが不足しています");
@@ -19,19 +61,6 @@ export const useLessonGenerator = (apiKey, userId) => {
     setGenError(null);
 
     try {
-      // ★ 追加: まず既存データが存在するか確認する
-      // これにより、リロード時などに無駄な再生成（API課金）を防ぎ、学習の続きから再開できる
-      const today = getTodayString();
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        console.log("Existing lesson found. Loading from Firestore.");
-        return docSnap.data(); // 生成せずに既存データを返す
-      }
-
-      // --- ここから新規生成ロジック ---
-
       // 0. 難易度別ガイドラインの動的生成
       const getDiffGuide = (level) => {
         switch(level) {
@@ -61,7 +90,7 @@ export const useLessonGenerator = (apiKey, userId) => {
 
       const diffGuide = getDiffGuide(difficulty);
 
-      // 管理者介入データの取得
+      // 管理者介入データの取得（もしあれば）
       let intervention = null;
       try {
           const iSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'interventions', userId));
@@ -83,12 +112,6 @@ export const useLessonGenerator = (apiKey, userId) => {
       1. **縦のつながり（テーマ史）**: 土地制度、対外関係、通貨、宗教政策など、歴史を貫く「一本の軸」をテーマに据えること。
       2. **多角的分析**: 政治的事件を、経済的背景（税制・貿易）や社会的影響（民衆・宗教）と結びつけて解説すること。
       3. **識別ポイントの強調**: 鎌倉と室町の守護の権限差、徳川綱吉と吉宗の政策差など、類似事象を比較・対照させること。
-
-      【★入試頻出テーマのエッセンス（優先的に組み込む視点）】
-      - **土地・租税の変遷**: 公地公民から荘園公領制、太閤検地、地租改正に至る制度の連続性と転換点。
-      - **外交・対外意識**: 冊封、朝貢、国風、海禁、開国といった「日本の立ち位置」と国際情勢の相関。
-      - **権力構造の変質**: 摂関、院政、幕府、藩閥、政党政治といった「統治の正当性」がどこに移ったか。
-      - **社会経済の連動**: 貨幣経済の浸透、都市の発展、農村の変貌が政治体制に与えた影響。
       `;
 
       const planPrompt = `
@@ -114,13 +137,11 @@ export const useLessonGenerator = (apiKey, userId) => {
       }
       `;
 
-      // ★ userId を渡し、個別設定を反映
       const planRes = await callAI("授業プラン作成", planPrompt, apiKey, userId);
       if (!planRes || !planRes.theme) throw new Error("プラン生成に失敗しました");
 
       // --- Step 2: Draft (高精度教材執筆) ---
 
-      // ★ 1. 共通フォーマット指示（スマホUI最適化）
       const commonFormat = `
       【視覚的構造化ルール（スマホ閲覧用）】
       1. **「文字の壁」禁止**: 1つの段落は最大3行まで。箇条書きを多用せよ。
@@ -128,7 +149,6 @@ export const useLessonGenerator = (apiKey, userId) => {
       3. **太字の強調**: 文中の重要語句（教科書太字レベル）は必ず **太字** で囲め。
       `;
 
-      // ★ 2. モード別執筆ガイドライン
       let lectureInstruction, tfInstruction, sortInstruction, essayInstruction;
 
       if (learningMode === 'school') {
@@ -279,7 +299,6 @@ export const useLessonGenerator = (apiKey, userId) => {
       不備を修正した最終的なJSONオブジェクトのみを返せ。
       `;
 
-      // ★ userId を渡し、個別設定を反映
       const finalRes = await callAI("品質チェック", reviewPrompt, apiKey, userId);
       const contentRes = (finalRes && finalRes.lecture) ? finalRes : draftRes;
 
@@ -291,13 +310,20 @@ export const useLessonGenerator = (apiKey, userId) => {
         difficulty,
         completed: false,
         userAnswers: {},
-        qIndex: 0
+        currentStep: 'lecture', // 初期ステップ
+        scores: { // 初期スコア
+          quizCorrect: 0, 
+          quizTotal: 0, 
+          essayScore: 0, 
+          essayTotal: 10, 
+          nextAction: null 
+        } 
       };
 
-      // Firestoreに保存
-      await setDoc(docRef, lessonData);
+      // saveProgressを使って初期保存
+      await saveProgress(sessionNum, lessonData);
 
-      // 用語の自動保存
+      // 用語の自動保存（Vocabularyコレクションへ）
       if (contentRes.essential_terms) {
         await Promise.all(contentRes.essential_terms.map(async (term) => {
             try {
@@ -323,5 +349,5 @@ export const useLessonGenerator = (apiKey, userId) => {
     }
   };
 
-  return { generateDailyLesson, isProcessing, genError };
+  return { generateDailyLesson, fetchTodayLesson, saveProgress, isProcessing, genError };
 };

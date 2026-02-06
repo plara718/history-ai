@@ -2,81 +2,82 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Card, CardContent, Typography, Button, IconButton, 
   List, ListItem, ListItemText, ListItemSecondaryAction, 
-  Chip, Collapse 
+  Chip, Collapse, Grid, Paper, Divider
 } from '@mui/material';
 import { 
   CheckCircle as CheckIcon, 
   Cancel as CancelIcon, 
   ArrowUpward as ArrowUpIcon, 
   ArrowDownward as ArrowDownIcon,
-  NavigateNext as NextIcon
+  NavigateNext as NextIcon,
+  CompareArrows as CompareIcon
 } from '@mui/icons-material';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 
 /**
  * 演習セクションのメインコンポーネント
- * - 正誤問題と整序問題を出題
- * - スコアを集計して親へ通知
+ * - 整序問題の答え合わせで「自分の順序 vs 正解」を表示
  */
-export const QuizSection = ({ lessonData, onComplete }) => {
-  // 正誤問題と整序問題を1つのリストに結合
+export const QuizSection = ({ lessonData, initialData, onProgress, onComplete }) => {
   const questions = useMemo(() => {
-    // lessonDataがまだロードされていない場合の安全策
     if (!lessonData || !lessonData.content) return [];
-
     const q1 = (lessonData.content.true_false || []).map(q => ({ ...q, type: 'tf' }));
     const q2 = (lessonData.content.sort || []).map(q => ({ ...q, type: 'sort' }));
     return [...q1, ...q2];
   }, [lessonData]);
 
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isAnswered, setIsAnswered] = useState(false); // 回答済みかどうかのフラグ
-  const [isCorrect, setIsCorrect] = useState(false);   // 現在の問題が正解だったか
-  const [correctCount, setCorrectCount] = useState(0); // 正解数の累積カウント
+  const [currentIndex, setCurrentIndex] = useState(initialData?.quizIndex || 0);
+  const [correctCount, setCorrectCount] = useState(initialData?.quizCorrect || 0);
+  
+  const [isAnswered, setIsAnswered] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
+  
+  // ★ 追加: ユーザーの整序回答を保存するステート
+  const [userSortOrder, setUserSortOrder] = useState(null);
 
   const currentQuestion = questions[currentIndex];
   const isLastQuestion = currentIndex === questions.length - 1;
 
-  // ★ 追加: 問題が切り替わったら画面トップへスクロール
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentIndex]);
 
-  // 次の問題へ進む（または完了）
+  useEffect(() => {
+    if (onProgress) {
+      onProgress(currentIndex, correctCount);
+    }
+  }, [currentIndex, correctCount, onProgress]);
+
   const handleNext = () => {
-    // 現在の問題の正解数を確定させる
-    // ※ state更新は非同期のため、直前の isCorrect を使って計算値を渡す
     const newCorrectCount = correctCount + (isCorrect ? 1 : 0);
 
     if (isLastQuestion) {
-      // ★ 修正: 完了時に「最終的な正解数」と「総問題数」を親に渡す
       onComplete({ 
         correct: newCorrectCount, 
         total: questions.length 
       });
     } else {
-      // 次の問題へ
       if (isCorrect) {
         setCorrectCount(prev => prev + 1);
       }
       setIsAnswered(false);
       setIsCorrect(false);
+      setUserSortOrder(null); // リセット
       setCurrentIndex(prev => prev + 1);
     }
   };
 
-  // ユーザーが回答した瞬間の処理
-  const handleResult = (result) => {
+  // ★ 修正: 整序問題の場合は、並び順(order)も受け取る
+  const handleResult = (result, order = null) => {
     setIsCorrect(result);
+    if (order) setUserSortOrder(order); // 整序の並びを保存
     setIsAnswered(true);
   };
 
-  // データがない場合のガード
   if (!currentQuestion) return null;
 
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', p: 2 }}>
-      {/* 進捗バー代わりのチップ */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Chip 
           label={`Question ${currentIndex + 1} / ${questions.length}`} 
@@ -90,7 +91,6 @@ export const QuizSection = ({ lessonData, onComplete }) => {
         </Typography>
       </Box>
 
-      {/* 問題カード */}
       <Card 
         elevation={3} 
         sx={{ 
@@ -105,7 +105,6 @@ export const QuizSection = ({ lessonData, onComplete }) => {
             Q. {currentQuestion.q}
           </Typography>
 
-          {/* 問題タイプに応じたコンポーネントの出し分け */}
           {!isAnswered ? (
             currentQuestion.type === 'tf' ? (
               <TrueFalseQuestion 
@@ -119,14 +118,13 @@ export const QuizSection = ({ lessonData, onComplete }) => {
               />
             )
           ) : (
-            // 回答済みの場合の表示（結果待ち・解説閲覧モード）
             <Box sx={{ textAlign: 'center', py: 2 }}>
                 <Typography variant="body2" color="text.secondary">回答完了</Typography>
             </Box>
           )}
         </CardContent>
 
-        {/* 解説＆結果エリア (回答後にアコーディオン展開) */}
+        {/* 解説＆結果エリア */}
         <Collapse in={isAnswered}>
           <Box sx={{ p: 3, bgcolor: isCorrect ? '#f0fdf4' : '#fef2f2', borderTop: '1px solid #eee' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -140,7 +138,47 @@ export const QuizSection = ({ lessonData, onComplete }) => {
               </Typography>
             </Box>
 
-            {/* AI解説 (SafeMarkdownでリッチに表示) */}
+            {/* ★ 追加: 整序問題の場合の比較表示エリア */}
+            {currentQuestion.type === 'sort' && userSortOrder && (
+              <Box sx={{ mt: 2, mb: 3 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, display: 'flex', alignItems: 'center' }}>
+                  <CompareIcon sx={{ mr: 1, fontSize: 18 }} /> 回答比較
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  {/* 自分の回答 */}
+                  <Grid item xs={12} sm={6}>
+                    <Paper elevation={0} sx={{ p: 2, bgcolor: isCorrect ? '#e6fffa' : '#fff5f5', border: '1px dashed #ccc' }}>
+                      <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', color: 'text.secondary', mb: 1 }}>
+                        あなたの回答
+                      </Typography>
+                      {userSortOrder.map((idx, i) => (
+                        <Box key={i} sx={{ display: 'flex', mb: 0.5, fontSize: '0.9rem' }}>
+                           <span style={{ fontWeight: 'bold', marginRight: '8px', color: '#666' }}>{i+1}.</span>
+                           {currentQuestion.items[idx]}
+                        </Box>
+                      ))}
+                    </Paper>
+                  </Grid>
+
+                  {/* 正解 */}
+                  <Grid item xs={12} sm={6}>
+                    <Paper elevation={0} sx={{ p: 2, bgcolor: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                      <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                        正解の順序
+                      </Typography>
+                      {currentQuestion.correct_order.map((idx, i) => (
+                        <Box key={i} sx={{ display: 'flex', mb: 0.5, fontSize: '0.9rem' }}>
+                           <span style={{ fontWeight: 'bold', marginRight: '8px', color: '#0284c7' }}>{i+1}.</span>
+                           {currentQuestion.items[idx]}
+                        </Box>
+                      ))}
+                    </Paper>
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
+
             <Box sx={{ mt: 2, bgcolor: 'white', p: 2, borderRadius: 2, border: '1px solid #eee' }}>
               <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ fontWeight: 'bold' }}>
                 💡 解説・ポイント
@@ -166,17 +204,10 @@ export const QuizSection = ({ lessonData, onComplete }) => {
   );
 };
 
-/**
- * サブコンポーネント: 正誤問題 (True/False)
- */
 const TrueFalseQuestion = ({ question, onAnswer }) => {
   const handleSelect = (userSelectBool) => {
-    // APIの正解データ(correct)と比較
-    // プロンプトでは {options: ["True", "False"], correct: 0} としているため、0=True, 1=False とみなす
     const isTrue = userSelectBool === true;
     const correctIsFirstOption = question.correct === 0; 
-    
-    // ユーザーがTrueを選び、正解も0番目(True)なら正解
     const result = (isTrue && correctIsFirstOption) || (!isTrue && !correctIsFirstOption);
     onAnswer(result);
   };
@@ -185,7 +216,7 @@ const TrueFalseQuestion = ({ question, onAnswer }) => {
     <Box sx={{ display: 'flex', gap: 2 }}>
       <Button
         variant="outlined"
-        color="primary" // MUIのデフォルト青
+        color="primary"
         fullWidth
         sx={{ 
           py: 4, borderRadius: 3, border: '2px solid', fontSize: '1.2rem', fontWeight: 'bold',
@@ -211,29 +242,21 @@ const TrueFalseQuestion = ({ question, onAnswer }) => {
   );
 };
 
-/**
- * サブコンポーネント: 整序問題 (Sort)
- * - items配列を並べ替えて提出するUI
- */
 const SortQuestion = ({ question, onAnswer }) => {
-  // 現在の並び順（インデックスの配列）を管理
   const [order, setOrder] = useState(question.items.map((_, i) => i));
 
-  // 要素を入れ替える関数
   const moveItem = (index, direction) => {
     const newOrder = [...order];
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= newOrder.length) return;
-
-    // スワップ
     [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]];
     setOrder(newOrder);
   };
 
   const handleSubmit = () => {
-    // correct_order (例: [2, 0, 1, 3]) と現在の order が完全一致するかチェック
     const isCorrect = JSON.stringify(order) === JSON.stringify(question.correct_order);
-    onAnswer(isCorrect);
+    // ★ 修正: 合否だけでなく、ユーザーの並び順(order)も渡す
+    onAnswer(isCorrect, order);
   };
 
   return (

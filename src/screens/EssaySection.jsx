@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Box, Card, CardContent, Typography, TextField, Button, 
   CircularProgress, Alert, Divider, Paper, AlertTitle, Chip 
@@ -12,20 +12,61 @@ import {
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { useLessonGrader } from '../hooks/useLessonGrader';
 
-export const EssaySection = ({ apiKey, lessonData, learningMode, onFinish }) => {
-  const [userAnswer, setUserAnswer] = useState('');
-  const [result, setResult] = useState(null);
-  const { gradeLesson, isGrading, gradeError } = useLessonGrader(apiKey);
+/**
+ * 簡易Debounceフック (lodash依存なしで実装)
+ * 指定した時間(ms)だけ処理を遅延させる
+ */
+const useDebouncedCallback = (callback, delay) => {
+  const timer = useRef(null);
 
+  const debouncedFunction = useCallback((...args) => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+    timer.current = setTimeout(() => {
+      callback(...args);
+    }, delay);
+  }, [callback, delay]);
+
+  return debouncedFunction;
+};
+
+export const EssaySection = ({ 
+  apiKey, 
+  lessonData, 
+  learningMode, 
+  initialDraft, // ★ 復元された下書きデータ
+  onDraftChange, // ★ 下書き変更通知用
+  onFinish 
+}) => {
+  // 初期値を復元データから設定
+  const [userAnswer, setUserAnswer] = useState(initialDraft || '');
+  const [result, setResult] = useState(null);
+  
+  const { gradeLesson, isGrading, gradeError } = useLessonGrader(apiKey);
   const essayData = lessonData.content.essay;
   const wordLimit = learningMode === 'school' ? 80 : 150;
 
-  // ★ 追加: 結果画面（Before/After）に切り替わったらトップへスクロール
+  // ★ 自動スクロール: 結果画面（Before/After）が表示されたらトップへ
   useEffect(() => {
     if (result) {
       window.scrollTo(0, 0);
     }
   }, [result]);
+
+  // ★ 自動保存: 入力が止まってから1秒後に親へ通知 (Debounce)
+  const debouncedSave = useDebouncedCallback((text) => {
+    if (onDraftChange) {
+      onDraftChange(text);
+    }
+  }, 1000);
+
+  // テキスト変更時の処理
+  const handleChange = (e) => {
+    const text = e.target.value;
+    setUserAnswer(text);
+    debouncedSave(text); // 非同期で保存
+  };
 
   // 通常の提出処理（AI採点）
   const handleSubmit = async () => {
@@ -51,12 +92,12 @@ ${essayData.model}
       `, 
       overall_comment: "記述問題は「型」を覚えることが近道です。模範解答の因果関係（A→B）を意識して書き写してみましょう。",
       weakness_tag: "#模範解答の分析",
-      recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。" // ギブアップ時のデフォルトアクション
+      recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。" // ギブアップ時の推奨アクション
     };
     setResult(mockResult);
   };
 
-  // ★ 修正: 完了時に親コンポーネントへデータを渡す
+  // 完了時に親コンポーネントへデータを渡す
   const handleFinish = () => {
     if (result) {
       onFinish({ 
@@ -64,7 +105,7 @@ ${essayData.model}
         recommended_action: result.recommended_action 
       });
     } else {
-      // 万が一resultがない場合（あり得ないが安全策）
+      // 万が一resultがない場合（安全策）
       onFinish({ score: 0, recommended_action: null });
     }
   };
@@ -97,7 +138,7 @@ ${essayData.model}
                 variant="outlined"
                 placeholder={`ここに入力してください... (目安: ${wordLimit}文字前後)`}
                 value={userAnswer}
-                onChange={(e) => setUserAnswer(e.target.value)}
+                onChange={handleChange} // ★ 修正: Debounce付きハンドラ
                 disabled={isGrading}
                 sx={{ 
                   bgcolor: '#f9fafb', 
@@ -184,7 +225,7 @@ ${essayData.model}
                 variant="outlined"
                 fullWidth
                 size="large"
-                onClick={handleFinish} // ★ 修正版関数を呼ぶ
+                onClick={handleFinish}
                 sx={{ mt: 4, py: 1.5, borderRadius: 3, fontWeight: 'bold' }}
               >
                 学習を終了する

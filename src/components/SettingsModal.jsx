@@ -1,132 +1,164 @@
 import React, { useState } from 'react';
-import { 
-  Dialog, 
-  DialogTitle, 
-  DialogContent, 
-  DialogActions, 
-  Button, 
-  Typography, 
-  Box,
-  Divider,
-  Chip,
-  IconButton,
-  Tooltip
-} from '@mui/material';
-import { Settings, Shield, Server, X, Copy, Check } from 'lucide-react';
+import { Modal, Box, Typography, TextField, Button, IconButton, Divider, Stack, Chip, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { X, Settings, ShieldCheck, Zap, User, Copy, Check, FlaskConical } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { APP_ID } from '../lib/constants';
 
-const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
+const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, adminApiKey, setAdminApiKey, appMode, setAppMode }) => {
+  const [localKey, setLocalKey] = useState(apiKey);
+  const [localAdminKey, setLocalAdminKey] = useState(adminApiKey);
+  const [isCopied, setIsCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-const SettingsModal = ({ open, onClose, user }) => {
-  const [copied, setCopied] = useState(false);
-  const isAdmin = user?.uid === ADMIN_UID;
+  // モード切替（Firestoreのグローバル設定を更新）
+  const handleModeChange = async (event, newMode) => {
+    if (!newMode || newMode === appMode) return;
+    setLoading(true);
+    try {
+      await setDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'), {
+        appMode: newMode,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      if (setAppMode) setAppMode(newMode);
+    } catch (e) {
+      console.error("モード切替失敗", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = () => {
+    localStorage.setItem('gemini_api_key', localKey);
+    localStorage.setItem('gemini_api_key_admin', localAdminKey);
+    setApiKey(localKey);
+    setAdminApiKey(localAdminKey);
+    onClose();
+  };
 
   const handleCopyUid = () => {
-    if (user?.uid) {
-      navigator.clipboard.writeText(user.uid);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    if (uid) {
+      navigator.clipboard.writeText(uid);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     }
   };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose}
-      fullWidth 
-      maxWidth="xs"
-      PaperProps={{ sx: { borderRadius: 3 } }}
-    >
-      <DialogTitle sx={{ fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Settings size={20} />
-          アプリ設定
-        </Box>
-        <IconButton onClick={onClose} size="small">
-          <X size={20} />
-        </IconButton>
-      </DialogTitle>
-      
-      <DialogContent dividers>
-        <Box display="flex" flexDirection="column" gap={2.5}>
-          
+    <Modal open={true} onClose={onClose}>
+      <Box sx={{
+        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: '90%', maxWidth: 500, bgcolor: 'background.paper', borderRadius: 4, boxShadow: 24, p: 4, outline: 'none',
+        maxHeight: '90vh', overflowY: 'auto'
+      }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Settings size={20} className="text-slate-600" />
+            <Typography variant="h6" fontWeight="bold">設定</Typography>
+          </Stack>
+          <IconButton onClick={onClose} size="small"><X /></IconButton>
+        </Stack>
+
+        <Stack spacing={3}>
+          {/* AIモード設定セクション */}
           <Box>
-            <Typography variant="caption" color="textSecondary" fontWeight="bold">
-              ログインアカウント
+            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
+              AI動作モード（システム全体）
             </Typography>
-            <Typography variant="body1" fontWeight="500">
-              {user?.email || '未取得'}
-            </Typography>
-            <Box display="flex" alignItems="center" gap={1} mt={0.5}>
-              <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.disabled', bgcolor: 'slate.50', px: 1, py: 0.5, borderRadius: 1 }}>
-                UID: {user?.uid || '---'}
-              </Typography>
-              <Tooltip title={copied ? "コピーしました" : "UIDをコピー"}>
-                <IconButton onClick={handleCopyUid} size="small" sx={{ color: copied ? 'success.main' : 'text.secondary' }}>
-                  {copied ? <Check size={16} /> : <Copy size={16} />}
-                </IconButton>
-              </Tooltip>
-            </Box>
+            <ToggleButtonGroup
+              value={appMode}
+              exclusive
+              onChange={handleModeChange}
+              disabled={loading}
+              fullWidth
+              size="small"
+              color="primary"
+            >
+              <ToggleButton value="production" sx={{ fontWeight: 'bold', gap: 1 }}>
+                <Zap size={14} /> 本番
+              </ToggleButton>
+              <ToggleButton value="test" sx={{ fontWeight: 'bold', gap: 1 }}>
+                <FlaskConical size={14} /> テスト
+              </ToggleButton>
+            </ToggleButtonGroup>
           </Box>
 
           <Divider />
 
+          {/* APIキー設定 */}
           <Box>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-              <Typography variant="caption" color="textSecondary" fontWeight="bold">
-                システム環境
-              </Typography>
-              <Chip 
-                icon={<Server size={14} />} 
-                label="Production Mode" 
-                color="success" 
-                size="small" 
-                variant="outlined" 
-              />
-            </Box>
-            <Typography variant="caption" color="text.disabled">
-              Version: 1.0.0 (Stable)
+            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
+              Gemini API Key
             </Typography>
+            <TextField
+              fullWidth
+              type="password"
+              variant="outlined"
+              size="small"
+              value={localKey}
+              onChange={(e) => setLocalKey(e.target.value)}
+              placeholder="AI学習に使用するキー"
+            />
           </Box>
 
-          {isAdmin && (
-            <>
-              <Divider />
-              <Box>
-                <Typography variant="caption" color="primary" fontWeight="bold" display="flex" alignItems="center" gap={0.5} mb={1}>
-                  <Shield size={14} />
-                  管理者メニュー
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
+              Admin API Key (Optional)
+            </Typography>
+            <TextField
+              fullWidth
+              type="password"
+              variant="outlined"
+              size="small"
+              value={localAdminKey}
+              onChange={(e) => setLocalAdminKey(e.target.value)}
+              placeholder="管理者機能に使用するキー"
+            />
+          </Box>
+
+          <Divider />
+
+          {/* ユーザー情報 */}
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
+              ユーザーID (UID)
+            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ bgcolor: 'slate.50', px: 2, py: 1, borderRadius: 2, flexGrow: 1, border: '1px solid', borderColor: 'slate.200' }}>
+                <Typography variant="code" sx={{ fontSize: '0.75rem', color: 'slate.600', wordBreak: 'break-all' }}>
+                  {uid || 'Loading...'}
                 </Typography>
-                <Button 
-                  variant="contained" 
-                  color="inherit" 
-                  fullWidth 
-                  onClick={() => {
-                    // ★修正：ハッシュによる遷移に変更（404エラー回避）
-                    window.location.hash = '/admin';
-                    onClose(); // モーダルを閉じる
-                  }}
-                  sx={{ 
-                    bgcolor: 'slate.800', 
-                    color: 'white', 
-                    fontWeight: 'bold',
-                    '&:hover': { bgcolor: 'slate.700' }
-                  }}
-                >
-                  管理ダッシュボードを開く
-                </Button>
               </Box>
-            </>
+              <IconButton onClick={handleCopyUid} color={isCopied ? "success" : "default"}>
+                {isCopied ? <Check size={18} /> : <Copy size={18} />}
+              </IconButton>
+            </Stack>
+          </Box>
+
+          {/* 管理者導線 */}
+          {!isAdminMode && (
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<ShieldCheck size={18} />}
+              onClick={onAdmin}
+              sx={{ borderRadius: 2, fontWeight: 'bold', borderStyle: 'dashed' }}
+            >
+              管理者モードへ切り替え
+            </Button>
           )}
 
-        </Box>
-      </DialogContent>
-
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} color="inherit" sx={{ fontWeight: 'bold' }}>
-          閉じる
-        </Button>
-      </DialogActions>
-    </Dialog>
+          <Button
+            variant="contained"
+            fullWidth
+            onClick={handleSave}
+            sx={{ py: 1.5, borderRadius: 2, fontWeight: 'bold', bgcolor: 'indigo.600' }}
+          >
+            設定を保存
+          </Button>
+        </Stack>
+      </Box>
+    </Modal>
   );
 };
 

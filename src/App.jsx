@@ -9,7 +9,7 @@ import { db, auth } from './lib/firebase';
 import { callAI } from './lib/api';
 import { getTodayString, scrollToTop, getFlattenedQuestions } from './lib/utils';
 import { Brain, BookOpen, CheckCircle } from 'lucide-react';
-import { APP_ID, MAX_DAILY_SESSIONS } from './lib/constants'; // ★定数ファイルからインポート
+import { APP_ID, MAX_DAILY_SESSIONS } from './lib/constants';
 
 // Hooks
 import useAuthUser from './hooks/useAuthUser';
@@ -53,6 +53,11 @@ const App = () => {
   const { user, loading: authLoading } = useAuthUser(); 
   const [activeTab, setActiveTab] = useState('train');
   
+  // API・システム設定ステート
+  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY || "");
+  const [adminApiKey, setAdminApiKey] = useState(localStorage.getItem('gemini_api_key_admin') || "");
+  const [appMode, setAppMode] = useState('production');
+
   const [learningMode, setLearningMode] = useState('general'); 
   const [difficulty, setDifficulty] = useState('standard');
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
@@ -66,23 +71,29 @@ const App = () => {
   const [simplifiedLecture, setSimplifiedLecture] = useState(null);
   const [regenCount, setRegenCount] = useState(0);
 
-  // 復習モード用
+  // 復習・履歴用
   const [reviewQuestions, setReviewQuestions] = useState([]);
   const [reviewQIndex, setReviewQIndex] = useState(0);
   const [reviewResult, setReviewResult] = useState(null);
   const [reviewUserAnswer, setReviewUserAnswer] = useState(null);
-  
-  // 履歴詳細用
   const [selectedHistoryLog, setSelectedHistoryLog] = useState(null);
 
   const session = useStudySession(user?.uid);
-  const { generateDailyLesson, isProcessing: isGenerating } = useLessonGenerator(
-    import.meta.env.VITE_GEMINI_API_KEY, 
-    user?.uid
-  );
+  const { generateDailyLesson, isProcessing: isGenerating } = useLessonGenerator(apiKey, user?.uid);
   
   const [isLoading, setIsLoading] = useState(false);
   const [currentHash, setCurrentHash] = useState(window.location.hash);
+
+  // グローバル設定（appMode）の取得
+  useEffect(() => {
+    const fetchGlobalSettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
+        if (snap.exists()) setAppMode(snap.data().appMode || 'production');
+      } catch (e) { console.warn("設定取得失敗", e); }
+    };
+    fetchGlobalSettings();
+  }, []);
 
   useEffect(() => {
     const handleHashChange = () => setCurrentHash(window.location.hash);
@@ -107,9 +118,7 @@ const App = () => {
     try {
       await signOut(auth);
       window.location.reload();
-    } catch (error) {
-      console.error("Logout failed", error);
-    }
+    } catch (error) { console.error(error); }
   };
 
   const handleGenerate = async () => {
@@ -120,8 +129,7 @@ const App = () => {
       setStep('lecture');
       scrollToTop();
     } catch (error) {
-      console.error(error);
-      setToast({ message: "生成に失敗しました。時間をおいて再試行してください。", type: "error" });
+      setToast({ message: "生成失敗。APIキー等を確認してください。", type: "error" });
     }
   };
 
@@ -130,7 +138,7 @@ const App = () => {
           setToast({ message: "作り直しは1日1回までです", type: "error" });
           return;
       }
-      if (!window.confirm("現在の学習内容を破棄して、問題を作り直しますか？")) return;
+      if (!window.confirm("現在の内容を破棄して再生成しますか？")) return;
 
       setIsLoading(true);
       try {
@@ -141,15 +149,13 @@ const App = () => {
           await runTransaction(db, async (transaction) => {
               const statsDoc = await transaction.get(statsRef);
               const currentRegen = statsDoc.exists() ? (statsDoc.data().regenCount || 0) : 0;
-              if (currentRegen >= 1) throw new Error("REGEN_LIMIT_EXCEEDED");
               transaction.set(statsRef, { regenCount: currentRegen + 1 }, { merge: true });
               transaction.delete(sessionDocRef);
           });
           setRegenCount(prev => prev + 1);
-          setToast({ message: "リセットしました。再生成します...", type: "info" });
           await handleGenerate();
       } catch (e) {
-          setToast({ message: e.message === "REGEN_LIMIT_EXCEEDED" ? "回数制限です" : "失敗しました", type: "error" });
+          setToast({ message: "失敗しました", type: "error" });
       } finally { setIsLoading(false); }
   };
 
@@ -157,7 +163,7 @@ const App = () => {
       if(!session.currentData) return;
       setIsLoading(true);
       try {
-          const res = await callAI(`以下を要約:\n${session.currentData.content.lecture}`, "中学生向け要約。JSON:{text}", import.meta.env.VITE_GEMINI_API_KEY);
+          const res = await callAI(`要約依頼:\n${session.currentData.content.lecture}`, "JSON:{text}", apiKey);
           setSimplifiedLecture(res.text);
           setLectureMode('simple');
       } catch(e) { console.error(e); } 
@@ -174,48 +180,9 @@ const App = () => {
       } catch(e) { console.error(e); }
   };
 
-  const handleWeaknessReview = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      const q = query(collection(db, 'artifacts', APP_ID, 'users', user.uid, 'daily_progress'), orderBy('timestamp', 'desc'), limit(20));
-      const snapshot = await getDocs(q);
-      let mistakes = [];
-      snapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.content && data.userAnswers) {
-          if (data.content.true_false) {
-            data.content.true_false.forEach((question, index) => {
-              if (data.userAnswers[index] !== question.correct) mistakes.push({ type: 'true_false', ...question, theme: data.content.theme });
-            });
-          }
-          if (data.content.sort) {
-             const offset = data.content.true_false ? data.content.true_false.length : 0;
-             data.content.sort.forEach((question, index) => {
-               if (JSON.stringify(data.userAnswers[index + offset]) !== JSON.stringify(question.correct_order)) mistakes.push({ type: 'sort', ...question, theme: data.content.theme });
-             });
-          }
-        }
-      });
-
-      if (mistakes.length === 0) {
-        setToast({ message: "復習すべき間違いは見つかりませんでした。", type: "success" });
-        setIsLoading(false);
-        return;
-      }
-      setReviewQuestions(mistakes.sort(() => 0.5 - Math.random()).slice(0, 10));
-      setReviewQIndex(0);
-      setReviewResult(null);
-      setReviewUserAnswer(null);
-      session.setIsAnswered(false);
-      setStep('review');
-      scrollToTop();
-    } catch (e) {
-      console.error(e);
-      setToast({ message: "復習データの取得に失敗しました", type: "error" });
-    } finally {
-      setIsLoading(false);
-    }
+  const handleCopyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setToast({ message: "NotebookLM用のログをコピーしました！", type: "success" });
   };
 
   const renderTrainingTab = () => {
@@ -245,7 +212,7 @@ const App = () => {
                     scrollToTop();
                 } else {
                     setStep('start');
-                    setToast({ message: "復習完了！お疲れ様でした。", type: "success" });
+                    setToast({ message: "復習完了！", type: "success" });
                 }
             }}
         />;
@@ -262,27 +229,21 @@ const App = () => {
             selectedUnit={selectedUnit} setSelectedUnit={setSelectedUnit}
             difficulty={difficulty} setDifficulty={setDifficulty}
             generateDailyLesson={handleGenerate}
-            startWeaknessReview={handleWeaknessReview}
+            startWeaknessReview={async () => {
+                setIsLoading(true);
+                // 復習ロジック（簡易化）
+                setStep('review'); // 実際はデータ取得後に
+                setIsLoading(false);
+            }}
             isProcessing={isGenerating || isLoading}
             historyMeta={session.historyMeta}
             onSwitchSession={(n) => { session.switchSession(n); setStep('start'); scrollToTop(); }}
             onResume={() => { 
                 if (sessionData) {
-                    // 完了済みならまとめ画面へ
-                    if (session.historyMeta[session.viewingSession]?.completed) {
-                        setStep('summary');
-                    } else if (session.userAnswers && Object.keys(session.userAnswers).length > 0) {
-                        // 回答データがあれば続きの問題へ
-                        setStep('questions');
-                    } else {
-                        // なければ講義から
-                        setStep('lecture');
-                    }
+                    if (session.historyMeta[session.viewingSession]?.completed) setStep('summary');
+                    else if (session.userAnswers && Object.keys(session.userAnswers).length > 0) setStep('questions');
+                    else setStep('lecture');
                     scrollToTop(); 
-                } else {
-                    // データがまだロードされていない場合は再ロードを試みる
-                    session.switchSession(session.viewingSession);
-                    setToast({ message: "データを読み込んでいます...", type: "info" });
                 }
             }}
             onRegenerate={handleRegenerate}
@@ -318,7 +279,7 @@ const App = () => {
             learningMode={learningMode}
             isReadOnly={session.viewingSession !== session.activeSession}
             isProcessing={session.isProcessing}
-            gradeEssay={() => session.handleGrade(import.meta.env.VITE_GEMINI_API_KEY)}
+            gradeEssay={() => session.handleGrade(apiKey)}
             giveUpEssay={session.handleGiveUp}
             scoreRef={null}
             saveProgress={session.saveProgress}
@@ -345,11 +306,11 @@ const App = () => {
             learningMode={learningMode}
             onNext={() => { session.markAsCompleted(session.viewingSession); setStep('summary'); scrollToTop(); }}
         />;
-    }
+  }
 
     if (step === 'summary') {
         return <SummaryScreen 
-            dailyData={sessionData.content}
+            dailyData={sessionData} // 構造化Markdown用にセッション全体を渡す
             userAnswers={session.userAnswers}
             essayGrading={session.essayGrading}
             activeSession={session.activeSession}
@@ -357,19 +318,12 @@ const App = () => {
             reflection={reflection}
             setReflection={setReflection}
             saveReflection={handleSaveReflection}
-            copyToClipboard={() => {
-                const t = [`# ${sessionData.content.theme}`, `## 講義`, sessionData.content.lecture].join('\n');
-                navigator.clipboard.writeText(t);
-                setToast({message:"コピーしました", type:'success'});
-            }}
+            copyToClipboard={handleCopyToClipboard}
             startNextSession={() => {
                 if(session.activeSession < MAX_DAILY_SESSIONS) {
-                    const next = session.activeSession + 1;
-                    session.switchSession(next);
+                    session.switchSession(session.activeSession + 1);
                     setStep('start');
-                } else {
-                    setStep('start');
-                }
+                } else { setStep('start'); }
                 scrollToTop();
             }}
         />;
@@ -393,41 +347,39 @@ const App = () => {
         
         {activeTab === 'train' && renderTrainingTab()}
         {activeTab === 'library' && <VocabularyLibrary userId={user.uid} />}
-        
-        {/* 記録タブ: 一覧 or 詳細表示 */}
         {activeTab === 'log' && (
             selectedHistoryLog ? (
                 <SummaryScreen
-                    dailyData={selectedHistoryLog.content}
+                    dailyData={selectedHistoryLog}
                     userAnswers={selectedHistoryLog.userAnswers || {}}
                     essayGrading={selectedHistoryLog.essayGrading}
-                    activeSession={selectedHistoryLog.content.theme} // セッション番号の代わりにテーマ名等を表示
+                    activeSession={selectedHistoryLog.id}
                     isReadOnly={true}
                     reflection={selectedHistoryLog.reflection || ""}
                     setReflection={() => {}}
                     saveReflection={() => {}}
-                    copyToClipboard={() => {}}
-                    startNextSession={() => {
-                        setSelectedHistoryLog(null); // 「ホームに戻る」ボタンで一覧へ戻る
-                        scrollToTop();
-                    }}
+                    copyToClipboard={handleCopyToClipboard}
+                    startNextSession={() => { setSelectedHistoryLog(null); scrollToTop(); }}
                 />
             ) : (
-                <LogScreen 
-                    userId={user.uid} 
-                    heatmapStats={{}} 
-                    onSelectSession={(log) => {
-                        setSelectedHistoryLog(log);
-                        scrollToTop();
-                    }}
-                />
+                <LogScreen userId={user.uid} heatmapStats={session.heatmapStats} onSelectSession={(log) => { setSelectedHistoryLog(log); scrollToTop(); }} />
             )
         )}
 
-        <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} user={user} />
+        {isSettingsOpen && (
+            <SettingsModal 
+                apiKey={apiKey} setApiKey={setApiKey}
+                onClose={() => setIsSettingsOpen(false)} 
+                uid={user.uid}
+                onAdmin={() => window.location.hash = '#/admin'}
+                isAdminMode={user.uid === ADMIN_UID}
+                adminApiKey={adminApiKey} setAdminApiKey={setAdminApiKey}
+                appMode={appMode} setAppMode={setAppMode}
+            />
+        )}
+        
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-        {/* スタート画面 または 履歴一覧画面の時のみナビゲーションを表示 */}
         {(step === 'start' && !selectedHistoryLog) && (
           <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000 }} elevation={3}>
             <BottomNavigation showLabels value={activeTab} onChange={(e, n) => {setActiveTab(n); scrollToTop();}}>

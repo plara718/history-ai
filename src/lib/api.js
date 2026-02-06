@@ -18,7 +18,7 @@ export const callAI = async (actionName, prompt, apiKey) => {
   }
 
   // 2. モードに応じた最新モデルの割り当て
-  // 本番: Gemini 2.0 Flash / テスト: Gemma 3
+  // 本番: Gemini 2.5 Flash / テスト: Gemma 3
   const modelName = appMode === 'production' ? "gemini-2.5-flash" : "gemma-3-27b-it";
   
   const MAX_RETRIES = 2; 

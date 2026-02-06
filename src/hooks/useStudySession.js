@@ -104,7 +104,7 @@ export const useStudySession = (userId) => {
       { userAnswers: ans, qIndex: idx }, { merge: true });
   };
 
-  // ★★★ 記述採点・総合分析プロンプトの強化版 ★★★
+  // 記述採点・総合分析（ユーザー個別設定対応）
   const handleGrade = async (userApiKey) => {
     const content = dailyData?.content || dailyData;
     if (!content) return;
@@ -138,29 +138,27 @@ export const useStudySession = (userId) => {
 
       【学習データ】
       - テーマ: ${content.theme}
-      - 客観テスト（正誤・整序）: ${objTotal}問中 ${objCorrect}問 正解
-      - 講義本文（正解の根拠）: ${content.lecture}
+      - 客観テスト: ${objTotal}問中 ${objCorrect}問 正解
+      - 講義本文: ${content.lecture}
       - 記述設問: ${content.essay.q}
       - 模範解答: ${content.essay.model}
       - 提出回答: ${answer}
 
-      【採点基準（10点満点：精度優先で厳格に判定せよ）】
-      1. 知識点 (0-5点): 
-         - 講義内の重要キーワードを正しく、適切な文脈で使用しているか。
-         - 歴史的事実に対する誤認（年号、人物、事件の関係性）はないか。
-      2. 論理点 (0-5点): 
-         - 設問の要求（「背景を述べよ」「意義を説明せよ」等）に直接回答しているか。
-         - 事象の因果関係が論理的に整合しているか（「AだからBになった」という飛躍のない接続）。
+      【採点基準（10点満点）】
+      1. 知識点 (0-5点): 講義内のキーワードを正しく、適切な文脈で使用しているか。
+      2. 論理点 (0-5点): 設問の要求（背景・意義等）に直接回答し、因果関係が整合しているか。
 
       【出力形式：JSON】
       {
-        "score": { "k": [知識点0-5], "l": [論理点0-5] },
-        "feedback": "## 記述採点レポート\\n- **評価点**: 具体的にどの記述が正確だったか\\n- **修正点**: 事実誤認や論理の飛躍の鋭い指摘\\n- **加筆推奨**: より高得点を狙うためのキーワードや視点",
-        "overall_advice": "## 総合指導案\\n今回の客観テスト（${objTotal}問中${objCorrect}問正解）と記述の内容を総合し、学習者に「次になすべき復習」を具体的に指示してください。客観テストが低い場合は用語の再暗記を、記述が低い場合は因果関係の把握を重点的に促すこと。"
+        "score": { "k": 0, "l": 0 },
+        "feedback": "## 記述採点レポート...",
+        "overall_advice": "## 総合指導案..."
       }
       `;
       
-      const res = await callAI("総合採点", prompt, userApiKey);
+      // ★修正箇所: 第4引数に userId を追加
+      const res = await callAI("総合採点", prompt, userApiKey, userId);
+      
       if (!res || !res.score) throw new Error("採点データ不正");
       
       res.score.k = res.score.k ?? 0; res.score.l = res.score.l ?? 0;
@@ -188,8 +186,8 @@ export const useStudySession = (userId) => {
     dismissKeyboard();
     const res = { 
         score: { k: 0, l: 0 }, 
-        feedback: "## 未回答\\n模範解答を写経し、解説をよく読んで事象の因果関係を復習しましょう。", 
-        overall_advice: "## 基礎から復習しましょう\\n記述は歴史の理解度を測る最も重要なステップです。まずは講義を読み直し、重要用語を自分の言葉で説明できるように練習しましょう。" 
+        feedback: "## 未回答\\n模範解答を確認し、因果関係を復習しましょう。", 
+        overall_advice: "## 基礎から復習しましょう" 
     };
     setEssayGrading(res);
     
@@ -203,7 +201,7 @@ export const useStudySession = (userId) => {
     setIsAnswered(true);
   };
 
-  useEffect(() => { loadHistoryMeta(); }, [userId]);
+  useEffect(() => { if (userId) loadHistoryMeta(); }, [userId]);
 
   const markAsCompleted = async (sessionNum) => {
       if (!userId) return;

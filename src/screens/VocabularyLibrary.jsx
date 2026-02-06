@@ -21,6 +21,7 @@ const VocabularyLibrary = ({ userId }) => {
       const list = snap.docs.map(d => d.data());
       setTerms(list);
       
+      
       // もし用語が0件なら、自動同期を試みる
       if (list.length === 0) {
           handleSyncFromHistory();

@@ -68,6 +68,7 @@ export const DIFFICULTY_DESCRIPTIONS = {
   }
 };
 
+
 // ロード中に表示される豆知識
 export const LOADING_TRIVIA = [
   "江戸時代の江戸の人口は100万人を超え、当時世界最大の都市でした。",

@@ -13,4 +13,5 @@ const LearningHeatmap = ({ stats }) => {
   );
 };
 
+
 export default LearningHeatmap;

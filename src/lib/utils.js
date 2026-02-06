@@ -21,6 +21,7 @@ export const scrollToTop = () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
+
 // ★重要: AI生成データの検証と補正
 export const validateLessonData = (data) => {
   if (!data) return null;

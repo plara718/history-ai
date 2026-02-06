@@ -17,6 +17,7 @@ const useAuthUser = () => {
     });
   }, []);
 
+  
   return { user, loading };
 };
 

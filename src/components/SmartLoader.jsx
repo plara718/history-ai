@@ -74,4 +74,5 @@ const SmartLoader = ({ message }) => {
   );
 };
 
+
 export default SmartLoader;

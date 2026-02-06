@@ -1,174 +1,248 @@
-import React from 'react';
-import { Box, Typography, Container, Paper, Stack, Button, TextField, Divider, Chip } from '@mui/material';
-import { CheckCircle, Zap, BookOpen, Share2, MessageSquare, ChevronRight, Trophy } from 'lucide-react';
-import MarkdownLite from '../components/MarkdownLite';
-import { getFlattenedQuestions } from '../lib/utils';
+import React, { useState } from 'react';
+import { 
+  Box, Container, Paper, Typography, Button, TextField, 
+  Divider, Chip, Stack, Alert, Snackbar 
+} from '@mui/material';
+import { 
+  ContentCopy as CopyIcon, 
+  OpenInNew as ExternalLinkIcon,
+  CheckCircle as CheckIcon,
+  EmojiEvents as TrophyIcon,
+  EditNote as NoteIcon,
+  Home as HomeIcon
+} from '@mui/icons-material';
+import { SafeMarkdown } from '../components/SafeMarkdown';
 
-const SummaryScreen = ({ 
-  dailyData, userAnswers, essayGrading, activeSession, isReadOnly,
-  reflection, setReflection, saveReflection,
-  copyToClipboard, startNextSession 
+export const SummaryScreen = ({ 
+  lessonData, 
+  gradingResult, 
+  quizLog, // {q, userAns, correct, result, type, exp} の配列（LessonScreenから渡す）
+  onFinish 
 }) => {
-  
-  if (!dailyData) return null;
+  const [reflection, setReflection] = useState('');
+  const [showToast, setShowToast] = useState(false);
 
-  // 1. スコア計算ロジックの修正（インデックス不整合を解決）
-  const flatQuestions = getFlattenedQuestions(dailyData);
-  const objectiveQuestions = flatQuestions.filter(q => q.type !== 'essay');
-  const objectiveCount = objectiveQuestions.length;
+  // 1. スコア計算
+  const quizCorrectCount = quizLog.filter(log => log.result === true).length;
+  const quizTotalCount = quizLog.length;
+  const essayScore = gradingResult ? gradingResult.score : 0;
   
-  // flatQuestions全体の中でのインデックスを保持したまま正誤判定
-  const correctCount = flatQuestions.reduce((acc, q, idx) => {
-    if (q.type === 'essay') return acc;
-    const uAns = userAnswers[idx];
-    if (uAns === undefined) return acc;
+  // 総合スコア（100点満点換算：クイズ60点 + 記述40点）
+  // ※配分は適宜調整してください
+  const totalScore = Math.round(
+    (quizCorrectCount / quizTotalCount) * 60 + (essayScore * 4)
+  );
+
+  // 2. NotebookLM用データ生成ロジック
+  const generateNotebookLMPrompt = () => {
+    const dateStr = new Date().toLocaleString('ja-JP');
+    const theme = lessonData.content.theme;
     
-    const isCorrect = q.type === 'true_false' 
-      ? uAns === q.correct 
-      : JSON.stringify(uAns) === JSON.stringify(q.correct_order);
-      
-    return isCorrect ? acc + 1 : acc;
-  }, 0);
+    // クイズ結果のテキスト化
+    const quizDetails = quizLog.map((log, i) => {
+      return `
+### Q${i+1}. ${log.q} [${log.type === 'tf' ? '正誤' : '整序'}]
+- **結果**: ${log.result ? '✅ 正解' : '❌ 不正解'}
+- **解説**: ${log.exp.replace(/\n/g, ' ')}
+      `.trim();
+    }).join('\n');
 
-  const essayScore = essayGrading ? (essayGrading.score.k + essayGrading.score.l) : 0;
-  const totalScore = Math.round((correctCount / objectiveCount) * 60 + (essayScore * 4));
+    // 生成テキスト本体
+    return `
+# 学習ログ: ${theme}
 
-  // 2. NotebookLM最適化Markdownの生成
-  const handleExport = () => {
-    const essayIndex = flatQuestions.findIndex(q => q.type === 'essay');
-    const essayQ = flatQuestions[essayIndex];
-    const theme = dailyData.theme || dailyData.content?.theme;
+## 1. メタデータ
+- **日付**: ${dateStr}
+- **モード**: ${lessonData.learningMode} / ${lessonData.difficulty}
+- **総合スコア**: ${totalScore}点 (Quiz: ${quizCorrectCount}/${quizTotalCount}, Essay: ${essayScore}/10)
 
-    const markdown = `
-# 学習記録：${theme} [${new Date().toLocaleString('ja-JP')}]
+## 2. 講義の要点（Strategic Essence）
+${lessonData.content.strategic_essence || '（データなし）'}
 
-## 1. メタ情報
-- **学習日時**: ${new Date().toLocaleString('ja-JP')}
-- **単元名**: ${theme}
-- **学習モード**: ${dailyData.learningMode === 'school' ? '定期テスト対策' : '大学入試対策'}
-- **難易度**: ${dailyData.difficulty}
+## 3. 記述問題の振り返り（Essay Review）
+### 問題
+${lessonData.content.essay.q}
 
-## 2. 学習結果サマリー
-- **選択問題正答数**: ${correctCount} / ${objectiveCount}
-- **記述スコア（知識点）**: ${essayGrading?.score.k || 0} / 5
-- **記述スコア（論理点）**: ${essayGrading?.score.l || 0} / 5
-- **総合得点**: ${totalScore} 点
+### ユーザーの回答
+${gradingResult.user_answer || '（回答データなし）'}
 
-## 3. アウトプット（記述問題の詳細）
-### 【設問】
-${essayQ?.q || '不明'}
+### AIによる添削（劇的ビフォーアフター）
+${gradingResult.correction}
 
-### 【提出した回答】
-${userAnswers[essayIndex] || '（未回答）'}
+### AIからの戦略アドバイス
+${gradingResult.overall_comment}
 
-### 【模範解答】
-${essayQ?.model || '不明'}
+### 弱点タグ
+${gradingResult.weakness_tag || 'なし'}
 
-### 【AI講師による詳細添削】
-${essayGrading?.feedback || 'フィードバックなし'}
+## 4. 演習問題ログ（Quiz Log）
+${quizDetails}
 
-## 4. 分析データ：AI講師からの総合アドバイス
-${essayGrading?.overall_advice || 'アドバイスなし'}
+## 5. ユーザーの振り返りメモ (Self Reflection)
+${reflection || '（記述なし）'}
 
-## 5. 振り返りメモ（自己分析）
-${reflection || '（メモなし）'}
-
-## 6. リソース：講義テキスト全文
 ---
-${dailyData.content?.lecture || '講義データなし'}
----
+## 参考：講義テキスト全文
+${lessonData.content.lecture}
     `.trim();
+  };
 
-    // 親コンポーネントのコピー関数に構造化文字列を渡す
-    copyToClipboard(markdown);
+  const handleCopy = async () => {
+    const text = generateNotebookLMPrompt();
+    try {
+      await navigator.clipboard.writeText(text);
+      setShowToast(true);
+    } catch (err) {
+      console.error('Copy failed', err);
+      alert('コピーに失敗しました');
+    }
+  };
+
+  const handleOpenNotebookLM = () => {
+    window.open('https://notebooklm.google.com/', '_blank');
   };
 
   return (
-    <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 12 }}>
+    <Container maxWidth="md" sx={{ py: 4, pb: 10 }} className="animate-fadeIn">
       
-      <Box textAlign="center" mb={4} mt={2}>
-          <Typography variant="overline" color="text.secondary" fontWeight="bold">SESSION COMPLETE</Typography>
-          <Typography variant="h5" fontWeight="900" color="slate.900" gutterBottom>
-              {dailyData.theme || dailyData.content?.theme}
-          </Typography>
-          <Chip label="学習完了" color="success" size="small" icon={<CheckCircle size={14}/>} sx={{ fontWeight: 'bold' }} />
+      {/* ヘッダー: スコア表示 */}
+      <Box sx={{ textAlign: 'center', mb: 5 }}>
+        <Typography variant="overline" color="text.secondary" fontWeight="bold">
+          MISSION COMPLETE
+        </Typography>
+        <Typography variant="h4" fontWeight="900" sx={{ mb: 2, color: '#333' }}>
+          {lessonData.content.theme}
+        </Typography>
+        
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            gap: 4,
+            p: 3, 
+            borderRadius: 4, 
+            bgcolor: '#f8fafc',
+            border: '1px solid #e2e8f0'
+          }}
+        >
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight="bold">QUIZ</Typography>
+            <Typography variant="h4" fontWeight="bold" color="primary">
+              {quizCorrectCount}<span style={{fontSize: '1rem', color:'#94a3b8'}}>/{quizTotalCount}</span>
+            </Typography>
+          </Box>
+          <Divider orientation="vertical" flexItem />
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight="bold">ESSAY</Typography>
+            <Typography variant="h4" fontWeight="bold" color="secondary">
+              {essayScore}<span style={{fontSize: '1rem', color:'#94a3b8'}}>/10</span>
+            </Typography>
+          </Box>
+          <Divider orientation="vertical" flexItem />
+          <Box>
+            <Typography variant="caption" color="text.secondary" fontWeight="bold">TOTAL</Typography>
+            <Typography variant="h4" fontWeight="900" color="#334155">
+              {totalScore}<span style={{fontSize: '1rem', color:'#94a3b8'}}>pt</span>
+            </Typography>
+          </Box>
+        </Paper>
       </Box>
 
-      <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, bgcolor: 'white', border: '1px solid', borderColor: 'divider', position: 'relative', overflow: 'hidden' }}>
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-500" />
-          <Stack direction="row" justifyContent="space-around" alignItems="center" py={1}>
-              <Box textAlign="center">
-                  <Typography variant="caption" color="text.secondary" fontWeight="bold">選択問題</Typography>
-                  <Typography variant="h4" fontWeight="900" color="indigo.600">
-                      {correctCount}<span className="text-sm text-slate-400">/{objectiveCount}</span>
-                  </Typography>
-              </Box>
-              <Divider orientation="vertical" flexItem />
-              <Box textAlign="center">
-                  <Typography variant="caption" color="text.secondary" fontWeight="bold">記述スコア</Typography>
-                  <Typography variant="h4" fontWeight="900" color="secondary.main">
-                      {essayScore}<span className="text-sm text-slate-400">/10</span>
-                  </Typography>
-              </Box>
-              <Divider orientation="vertical" flexItem />
-              <Box textAlign="center">
-                  <Typography variant="caption" color="text.secondary" fontWeight="bold">総合評価</Typography>
-                  <Stack direction="row" alignItems="flex-end" justifyContent="center">
-                      <Typography variant="h4" fontWeight="900" color="slate.800">{totalScore}</Typography>
-                      <Typography variant="caption" color="slate.400" mb={0.8} ml={0.5}>点</Typography>
-                  </Stack>
-              </Box>
-          </Stack>
+      {/* AIからのアドバイス表示 */}
+      <Paper elevation={3} sx={{ p: 4, borderRadius: 4, mb: 4, borderLeft: '6px solid #fbbf24' }}>
+        <Stack direction="row" alignItems="center" gap={1} mb={2}>
+          <TrophyIcon sx={{ color: '#d97706' }} />
+          <Typography variant="h6" fontWeight="bold" color="#78350f">
+            Next Action Strategy
+          </Typography>
+        </Stack>
+        <Typography variant="body1" sx={{ lineHeight: 1.8, color: '#4b5563' }}>
+          {gradingResult?.overall_comment}
+        </Typography>
+        {gradingResult?.weakness_tag && (
+          <Box mt={2}>
+             <Chip label={gradingResult.weakness_tag} color="error" size="small" variant="outlined"/>
+          </Box>
+        )}
       </Paper>
 
-      {essayGrading?.overall_advice && (
-          <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 4, bgcolor: '#f0f9ff', border: '1px solid', borderColor: '#bae6fd' }}>
-              <Stack direction="row" alignItems="center" spacing={1.5} mb={2}>
-                  <Box p={0.8} bgcolor="white" borderRadius="50%" color="#0284c7" display="flex"><Trophy size={20} /></Box>
-                  <Typography variant="subtitle1" fontWeight="bold" color="#0369a1">今回の成績と学習アドバイス</Typography>
-              </Stack>
-              <Box sx={{ typography: 'body2', color: '#0c4a6e', lineHeight: 1.8 }}><MarkdownLite text={essayGrading.overall_advice} /></Box>
-          </Paper>
-      )}
-
-      <Box mb={4}>
-          <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-              <MessageSquare size={18} className="text-indigo-500" />
-              <Typography variant="subtitle2" fontWeight="bold" color="slate.700">振り返りメモ</Typography>
-          </Stack>
-          <TextField
-              fullWidth multiline rows={3} placeholder="気づいたことや、次に意識することを残しておきましょう"
-              value={reflection} onChange={(e) => setReflection(e.target.value)} onBlur={saveReflection} disabled={isReadOnly}
-              sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
-          />
+      {/* 自己振り返り入力エリア */}
+      <Box sx={{ mb: 5 }}>
+        <Stack direction="row" alignItems="center" gap={1} mb={1}>
+          <NoteIcon color="primary" />
+          <Typography variant="h6" fontWeight="bold" color="text.primary">
+            Self Reflection
+          </Typography>
+        </Stack>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          今回の学習で得た「気づき」や、次回の「具体的な目標」を一言残しましょう。NotebookLMに保存されます。
+        </Typography>
+        <TextField
+          fullWidth
+          multiline
+          rows={3}
+          placeholder="例：荘園公領制の因果関係が曖昧だった。次は資料集の図版を確認してから挑む。"
+          value={reflection}
+          onChange={(e) => setReflection(e.target.value)}
+          sx={{ 
+            bgcolor: 'white', 
+            '& .MuiOutlinedInput-root': { borderRadius: 3 } 
+          }}
+        />
       </Box>
 
+      {/* アクションボタン群 */}
       <Stack spacing={2}>
-          <Button 
-              variant="contained" size="large" fullWidth onClick={startNextSession} endIcon={<ChevronRight />}
-              sx={{ py: 2, borderRadius: 3, fontWeight: 'bold', fontSize: '1.05rem', boxShadow: '0 4px 14px rgba(79, 70, 229, 0.3)' }}
-          >
-              {activeSession < 3 ? "次の学習へ進む" : "ホームに戻る"}
-          </Button>
+        <Button
+          variant="contained"
+          size="large"
+          fullWidth
+          startIcon={<CopyIcon />}
+          onClick={handleCopy}
+          sx={{ 
+            py: 1.5, borderRadius: 3, fontWeight: 'bold', fontSize: '1rem',
+            background: 'linear-gradient(90deg, #4f46e5 0%, #7c3aed 100%)',
+            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
+          }}
+        >
+          NotebookLM用にデータをコピー
+        </Button>
 
-          <Stack direction="row" spacing={2}>
-              <Button 
-                  fullWidth variant="outlined" onClick={handleExport} startIcon={<Share2 size={18} />}
-                  sx={{ borderRadius: 3, fontWeight: 'bold', borderColor: 'slate.300', color: 'slate.600' }}
-              >
-                  内容をコピー
-              </Button>
-              <Button 
-                  fullWidth variant="outlined" startIcon={<BookOpen size={18} />}
-                  sx={{ borderRadius: 3, fontWeight: 'bold', borderColor: 'slate.300', color: 'slate.600' }}
-                  onClick={() => window.open(`https://www.google.com/search?q=${encodeURIComponent(dailyData.theme || dailyData.content?.theme)}`, '_blank')}
-              >
-                  もっと調べる
-              </Button>
-          </Stack>
+        <Stack direction="row" spacing={2}>
+            <Button
+              variant="outlined"
+              fullWidth
+              startIcon={<ExternalLinkIcon />}
+              onClick={handleOpenNotebookLM}
+              sx={{ py: 1.5, borderRadius: 3, fontWeight: 'bold' }}
+            >
+              NotebookLMを開く
+            </Button>
+            
+            <Button
+              variant="text"
+              fullWidth
+              startIcon={<HomeIcon />}
+              onClick={onFinish}
+              sx={{ py: 1.5, borderRadius: 3, fontWeight: 'bold', color: 'text.secondary' }}
+            >
+              ホームに戻る
+            </Button>
+        </Stack>
       </Stack>
+
+      <Snackbar
+        open={showToast}
+        autoHideDuration={3000}
+        onClose={() => setShowToast(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" icon={<CheckIcon fontSize="inherit" />}>
+          コピーしました！NotebookLMに貼り付けてください。
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };
-
-export default SummaryScreen;

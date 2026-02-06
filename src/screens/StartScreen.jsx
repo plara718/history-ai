@@ -1,16 +1,21 @@
 import React from 'react';
 import { Box, Button, Typography, Container, Stack, Paper, Chip, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle } from 'lucide-react';
-import { TEXTBOOK_UNITS, MAX_DAILY_SESSIONS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants'; // ★定数を追加インポート
+import { TEXTBOOK_UNITS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants';
 
 const StartScreen = ({ 
   activeSession, viewingSession, isDailyLimitReached,
   learningMode, setLearningMode,
   selectedUnit, setSelectedUnit,
   difficulty, setDifficulty,
-  generateDailyLesson, startWeaknessReview,
+  
+  // App.jsx から渡されるハンドラ
+  generateDailyLesson, // 「学習をはじめる」ボタン用 (実態は handleStartLesson)
+  onResume,            // 「再開する」ボタン用 (実態は handleStartLesson または step変更)
+  
+  startWeaknessReview,
   isProcessing, historyMeta, onSwitchSession,
-  onResume, onRegenerate, regenCount,
+  onRegenerate, regenCount,
   onLogout, userId, openSettings 
 }) => {
   
@@ -20,11 +25,11 @@ const StartScreen = ({
   const isViewingCompleted = historyMeta && historyMeta[viewingSession]?.completed;
   const isViewingExists = historyMeta && historyMeta[viewingSession]?.exists;
 
-  // ★現在選択されている難易度の説明を取得
+  // 現在選択されている難易度の説明
   const currentDifficultyDesc = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty]?.desc || "設定に合わせてAIが調整します";
 
   return (
-    <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 8 }}>
+    <Container maxWidth="sm" className="animate-fadeIn" sx={{ pb: 8 }}>
       
       {/* ユーザー情報ヘッダー */}
       <Box mb={3} display="flex" justifyContent="space-between" alignItems="center">
@@ -131,8 +136,6 @@ const StartScreen = ({
                         />
                     ))}
                 </Stack>
-                
-                {/* ★復活: 難易度の説明文 */}
                 <Typography variant="caption" display="block" textAlign="center" color="text.secondary" sx={{ bgcolor: 'slate.50', py: 0.5, borderRadius: 1 }}>
                     {currentDifficultyDesc}
                 </Typography>
@@ -143,7 +146,10 @@ const StartScreen = ({
         {/* アクションボタンエリア */}
         <Stack spacing={2}>
             {isViewingExists ? (
+                // 既存データがある場合
                 isViewingCompleted ? (
+                    // 完了済み -> 復習ボタン (ログ画面へ遷移、またはLessonScreen経由でログ表示)
+                    // App.jsxの実装に合わせて、ここでは「onResume」を呼ぶのが適切
                     <Button 
                         fullWidth 
                         variant="outlined" 
@@ -160,26 +166,35 @@ const StartScreen = ({
                             bgcolor: 'slate.50'
                         }}
                     >
-                        学習結果・講義を見直す
+                        学習結果を見直す
                     </Button>
                 ) : (
+                    // 未完了 -> 再開ボタン
                     <Button 
                         fullWidth 
                         variant="contained" 
                         size="large" 
                         onClick={onResume}
                         startIcon={<Play fill="currentColor" />}
-                        className={`bg-${themeColor}-600 hover:bg-${themeColor}-700`}
-                        sx={{ borderRadius: 3, py: 2, fontSize: '1.1rem', fontWeight: 'bold' }}
+                        sx={{ 
+                            borderRadius: 3, 
+                            py: 2, 
+                            fontSize: '1.1rem', 
+                            fontWeight: 'bold',
+                            bgcolor: isSchool ? '#059669' : '#4f46e5', // テーマカラー適用
+                            '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' }
+                        }}
                     >
                         学習を再開する
                     </Button>
                 )
             ) : (
+                // データなし -> 生成ボタン
                 <Button 
                     fullWidth 
                     variant="contained" 
                     size="large" 
+                    // これが押されると App.jsx の handleStartLesson が走り、LessonScreenへ遷移する
                     onClick={generateDailyLesson}
                     disabled={isProcessing || isDailyLimitReached}
                     startIcon={isProcessing ? <Zap className="animate-spin"/> : <BookOpen />}
@@ -192,7 +207,7 @@ const StartScreen = ({
                         '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' }
                     }}
                 >
-                    {isProcessing ? "AIが授業準備中..." : "学習をはじめる"}
+                    {isProcessing ? "AIが準備中..." : "学習をはじめる"}
                 </Button>
             )}
 

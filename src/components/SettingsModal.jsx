@@ -1,22 +1,38 @@
 import React, { useState } from 'react';
-import { Modal, Box, Typography, TextField, Button, IconButton, Divider, Stack, ToggleButton, ToggleButtonGroup } from '@mui/material';
-import { X, Settings, ShieldCheck, Zap, Copy, Check, FlaskConical } from 'lucide-react';
+import { 
+  Modal, Box, Typography, TextField, Button, IconButton, 
+  Divider, Stack, ToggleButton, ToggleButtonGroup, CircularProgress 
+} from '@mui/material';
+import { 
+  Close as CloseIcon, 
+  Settings as SettingsIcon, 
+  AdminPanelSettings as AdminIcon, 
+  Bolt as ProductionIcon, 
+  Science as TestIcon, 
+  ContentCopy as CopyIcon, 
+  Check as CheckIcon 
+} from '@mui/icons-material';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { APP_ID } from '../lib/constants';
 
-const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, adminApiKey, setAdminApiKey, appMode, setAppMode }) => {
+const SettingsModal = ({ 
+  apiKey, setApiKey, onClose, uid, 
+  onAdmin, isAdminMode, 
+  adminApiKey, setAdminApiKey, 
+  appMode, setAppMode 
+}) => {
   const [localKey, setLocalKey] = useState(apiKey);
   const [localAdminKey, setLocalAdminKey] = useState(adminApiKey);
   const [isCopied, setIsCopied] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ★改善: モード切替（ユーザー個別のパスに保存するように変更）
+  // モード切替（ユーザー個別のFirestoreパスに保存）
   const handleModeChange = async (event, newMode) => {
     if (!newMode || newMode === appMode || !uid) return;
     setLoading(true);
     try {
-      // 保存先を個人設定のパスに変更
+      // settings/ai_config サブコレクションに保存
       await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid, 'settings', 'ai_config'), {
         appMode: newMode,
         updatedAt: new Date().toISOString()
@@ -55,17 +71,17 @@ const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, 
       }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Settings size={20} className="text-slate-600" />
-            <Typography variant="h6" fontWeight="bold">設定</Typography>
+            <SettingsIcon color="primary" />
+            <Typography variant="h6" fontWeight="bold">アプリ設定</Typography>
           </Stack>
-          <IconButton onClick={onClose} size="small"><X /></IconButton>
+          <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
         </Stack>
 
         <Stack spacing={3}>
-          {/* AIモード設定セクション（個人用） */}
+          {/* AIモード設定セクション */}
           <Box>
             <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              AI動作モード（あなた専用の設定）
+              AI動作モード（あなた専用）
             </Typography>
             <ToggleButtonGroup
               value={appMode}
@@ -75,14 +91,20 @@ const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, 
               fullWidth
               size="small"
               color="primary"
+              sx={{ '& .MuiToggleButton-root': { borderRadius: 2, fontWeight: 'bold' } }}
             >
-              <ToggleButton value="production" sx={{ fontWeight: 'bold', gap: 1 }}>
-                <Zap size={14} /> 本番
+              <ToggleButton value="production" sx={{ gap: 1 }}>
+                {loading ? <CircularProgress size={16} /> : <ProductionIcon fontSize="small" />}
+                本番モード
               </ToggleButton>
-              <ToggleButton value="test" sx={{ fontWeight: 'bold', gap: 1 }}>
-                <FlaskConical size={14} /> テスト
+              <ToggleButton value="test" sx={{ gap: 1 }}>
+                {loading ? <CircularProgress size={16} /> : <TestIcon fontSize="small" />}
+                テストモード
               </ToggleButton>
             </ToggleButtonGroup>
+            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
+              ※ テストモードではプロンプトの調整や実験的な機能が有効になります。
+            </Typography>
           </Box>
 
           <Divider />
@@ -95,18 +117,20 @@ const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, 
             <TextField
               fullWidth type="password" variant="outlined" size="small"
               value={localKey} onChange={(e) => setLocalKey(e.target.value)}
-              placeholder="AI学習に使用するキー"
+              placeholder="AI学習に使用するキーを入力"
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
           </Box>
 
           <Box>
             <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              Admin API Key (Optional)
+              Admin API Key (任意)
             </Typography>
             <TextField
               fullWidth type="password" variant="outlined" size="small"
               value={localAdminKey} onChange={(e) => setLocalAdminKey(e.target.value)}
-              placeholder="管理者機能に使用するキー"
+              placeholder="管理者機能用キー"
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
           </Box>
 
@@ -115,30 +139,42 @@ const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, 
           {/* ユーザー情報 */}
           <Box>
             <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              ユーザーID (UID)
+              User ID (サポート用)
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Box sx={{ bgcolor: 'slate.50', px: 2, py: 1, borderRadius: 2, flexGrow: 1, border: '1px solid', borderColor: 'slate.200', overflow: 'hidden' }}>
-                <Typography variant="caption" sx={{ color: 'slate.600', wordBreak: 'break-all', display: 'block' }}>
+              <Box sx={{ 
+                bgcolor: '#f1f5f9', px: 2, py: 1.5, borderRadius: 2, 
+                flexGrow: 1, border: '1px solid #e2e8f0', overflow: 'hidden' 
+              }}>
+                <Typography variant="caption" sx={{ color: '#475569', wordBreak: 'break-all', display: 'block', fontFamily: 'monospace' }}>
                   {uid || 'Loading...'}
                 </Typography>
               </Box>
-              <IconButton onClick={handleCopyUid} color={isCopied ? "success" : "default"} size="small">
-                {isCopied ? <Check size={18} /> : <Copy size={18} />}
+              <IconButton 
+                onClick={handleCopyUid} 
+                sx={{ 
+                  bgcolor: isCopied ? '#ecfdf5' : '#f8fafc', 
+                  color: isCopied ? '#10b981' : '#64748b',
+                  border: '1px solid',
+                  borderColor: isCopied ? '#a7f3d0' : '#e2e8f0',
+                  borderRadius: 2
+                }}
+              >
+                {isCopied ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
               </IconButton>
             </Stack>
           </Box>
 
-          {/* ★改善: 管理者ダッシュボードへの導線 */}
+          {/* 管理者ダッシュボードへの導線 */}
           {isAdminMode && (
             <Button
               variant="outlined"
               color="secondary"
-              startIcon={<ShieldCheck size={18} />}
+              startIcon={<AdminIcon />}
               onClick={onAdmin}
               sx={{ borderRadius: 2, fontWeight: 'bold', borderStyle: 'dashed', py: 1 }}
             >
-              管理者ダッシュボードを開く
+              管理者ダッシュボード
             </Button>
           )}
 
@@ -146,9 +182,10 @@ const SettingsModal = ({ apiKey, setApiKey, onClose, uid, onAdmin, isAdminMode, 
             variant="contained"
             fullWidth
             onClick={handleSave}
-            sx={{ py: 1.5, borderRadius: 2, fontWeight: 'bold', bgcolor: 'indigo.600' }}
+            size="large"
+            sx={{ py: 1.5, borderRadius: 3, fontWeight: 'bold', boxShadow: 2 }}
           >
-            設定を保存
+            設定を保存して閉じる
           </Button>
         </Stack>
       </Box>

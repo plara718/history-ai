@@ -1,283 +1,312 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Button, CircularProgress, Alert, Container, Chip } from '@mui/material';
-import { CheckCircle, ArrowForward, School, EmojiEvents } from '@mui/icons-material';
-import { doc, setDoc, increment } from 'firebase/firestore'; // ★追加: 保存用
-import { db } from '../lib/firebase'; // ★追加: 保存用
-import { APP_ID } from '../lib/constants'; // ★追加: 保存用
-import { getTodayString } from '../lib/utils'; // ★追加: 保存用
+import { 
+  Box, Typography, Card, CardContent, Button, TextField 
+} from '@mui/material';
+import { EmojiEvents } from '@mui/icons-material';
 
-// Hooks
 import { useLessonGenerator } from '../hooks/useLessonGenerator';
-
-// Components
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { QuizSection } from './QuizSection';
 import { EssaySection } from './EssaySection';
-import { SummaryScreen } from './SummaryScreen';
 
-export const LessonScreen = ({ apiKey, userId, learningMode, difficulty, selectedUnit, sessionNum = 1, onFinish }) => {
-  // --- State Management ---
-  // ステップ: 'loading' -> 'lecture' -> 'quiz' -> 'essay' -> 'result'
+export const LessonScreen = ({ apiKey, userId, learningMode, difficulty, selectedUnit }) => {
+  // ステップ管理: 'loading' | 'lecture' | 'quiz' | 'essay' | 'result'
   const [currentStep, setCurrentStep] = useState('loading');
   const [lessonData, setLessonData] = useState(null);
   
-  // ログデータ (SummaryScreen & NotebookLM用)
-  const [quizLog, setQuizLog] = useState([]); // クイズの回答履歴
-  const [gradingResult, setGradingResult] = useState(null); // 記述の採点結果
+  // 成績・アクションデータ管理
+  const [scores, setScores] = useState({
+    quizCorrect: 0,
+    quizTotal: 0,
+    essayScore: 0,
+    essayTotal: 10,
+    nextAction: null // AIからの提案アクション
+  });
 
-  // AI Generator Hook
   const { generateDailyLesson, isProcessing, genError } = useLessonGenerator(apiKey, userId);
 
-  // --- Effects ---
+  // ★ 追加: ステップが切り替わったら画面トップへ強制スクロール
+  useEffect(() => {
+    window.scrollTo(0, 0); 
+  }, [currentStep]);
 
-  // 初回マウント時にAI生成（または既存データ読み込み）を実行
+  // 初回生成処理
   useEffect(() => {
     const initLesson = async () => {
       try {
-        // generateDailyLesson内部で「既存データのチェック」を行うため、
-        // 毎回呼んでも無駄な生成は発生しません（修正済みuseLessonGeneratorが前提）
+        // セッション番号は仮で1としています（実際はDB等から取得）
+        const sessionNum = 1;
         const data = await generateDailyLesson(learningMode, difficulty, selectedUnit, sessionNum);
         if (data) {
-          setLessonData(data);
-          
-          // 既に完了しているデータだった場合、いきなり結果画面に行きたい場合はここで分岐可能
-          // 今回は復習も兼ねて 'lecture' から始める仕様にします
-          setCurrentStep('lecture');
+            setLessonData(data);
+            setCurrentStep('lecture');
         }
       } catch (e) {
         console.error("Lesson generation failed", e);
       }
     };
 
-    if (userId && apiKey) {
-      initLesson();
-    }
-  }, []); 
+    initLesson();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 初回のみ実行
 
-  // --- Handlers ---
-
-  /**
-   * クイズ（正誤・整序）の回答をログに記録する関数
-   * QuizSectionから1問ごとに呼び出される
-   */
-  const handleQuizLogUpdate = (logItem) => {
-    // logItem: { q, type, result, correct, userAns, exp }
-    setQuizLog((prev) => [...prev, logItem]);
+  // ★ Quiz完了時の処理
+  const handleQuizComplete = (result) => {
+    setScores(prev => ({
+      ...prev,
+      quizCorrect: result.correct,
+      quizTotal: result.total
+    }));
+    setCurrentStep('essay');
   };
 
-  /**
-   * 記述問題（Essay）が完了した時の処理
-   * ★ここでFirebaseへの保存を実行します
-   */
-  const handleEssayComplete = async (result) => {
-    setGradingResult(result);
+  // ★ Essay完了時の処理
+  const handleEssayComplete = (result) => {
+    setScores(prev => ({
+      ...prev,
+      essayScore: result.score,
+      nextAction: result.recommended_action // ★ 採点結果からアクションを受け取る
+    }));
     setCurrentStep('result');
-
-    // --- データの保存処理 ---
-    if (userId) {
-      try {
-        const today = getTodayString();
-        const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
-        const statsRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap');
-
-        // 1. レッスンデータに結果を追記（完了フラグを立てる）
-        await setDoc(docRef, {
-          quizLog: quizLog,          // クイズの回答履歴
-          gradingResult: result,     // 記述の採点結果
-          completed: true,           // 完了フラグ
-          completedAt: new Date().toISOString()
-        }, { merge: true });
-
-        // 2. ヒートマップ（カレンダー）を更新
-        await setDoc(statsRef, { 
-          data: { [today]: increment(1) } 
-        }, { merge: true });
-
-        console.log("Lesson result saved successfully.");
-      } catch (e) {
-        console.error("保存エラー:", e);
-      }
-    }
   };
 
-  /**
-   * 全学習終了（親コンポーネントへ通知）
-   */
-  const handleFinishSession = () => {
-    if (onFinish) {
-      onFinish();
-    }
+  // ★ 総合スコア計算ロジック
+  const calculateTotalScore = () => {
+    const { quizCorrect, quizTotal, essayScore, essayTotal } = scores;
+    
+    // まだデータがない場合
+    if (quizTotal === 0 && essayTotal === 0) return 0;
+
+    const totalPossible = quizTotal + essayTotal; 
+    const totalEarned = quizCorrect + essayScore;
+
+    if (totalPossible === 0) return 0;
+
+    // 100点満点に換算して四捨五入
+    return Math.round((totalEarned / totalPossible) * 100);
   };
 
-  // --- Render Helpers ---
+  // ----------------------------------------------------
+  // 結果画面 (Step 4: Result)
+  // ----------------------------------------------------
+  if (currentStep === 'result' && lessonData) {
+    const totalScore = calculateTotalScore();
 
-  // ローディング画面
-  if (currentStep === 'loading' || isProcessing) {
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', bgcolor: '#f8fafc', p: 3 }}>
-        <CircularProgress size={60} thickness={4} sx={{ color: '#4f46e5', mb: 4 }} />
-        <Typography variant="h6" fontWeight="bold" color="text.secondary" className="animate-pulse">
-          {learningMode === 'school' ? '定期テスト対策' : '入試戦略'}講義を準備中...
-        </Typography>
-        <Typography variant="caption" color="text.disabled" sx={{ mt: 1 }}>
-          AI講師が黒板を準備しています<br/>(難易度: {difficulty})
-        </Typography>
-      </Box>
-    );
-  }
+      <div className="min-h-screen bg-gray-50 p-4 pb-20 animate-fadeIn">
+        {/* ヘッダー的な表示 */}
+        <Box sx={{ textAlign: 'center', mt: 4, mb: 6 }}>
+           <Typography variant="overline" sx={{ color: '#666', fontWeight: 'bold', letterSpacing: 2 }}>
+             MISSION COMPLETE
+           </Typography>
+           <Typography variant="h4" sx={{ fontWeight: '900', color: '#333', mt: 1, lineHeight: 1.3 }}>
+             {lessonData.content.theme}
+           </Typography>
+        </Box>
 
-  // エラー画面
-  if (genError) {
-    return (
-      <Container maxWidth="sm" sx={{ py: 10 }}>
-        <Alert severity="error" variant="filled" sx={{ borderRadius: 2 }}>
-          {genError}
-        </Alert>
-        <Button onClick={() => window.location.reload()} sx={{ mt: 2 }}>
-          再試行する
-        </Button>
-      </Container>
-    );
-  }
-
-  // データがない場合のフォールバック
-  if (!lessonData) return null;
-
-  // メイン描画
-  return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: 8 }}>
-      
-      {/* 1. Sticky Header (進捗バー) */}
-      <Box 
-        sx={{ 
-          position: 'sticky', top: 0, zIndex: 100, 
-          bgcolor: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)',
-          borderBottom: '1px solid #e2e8f0', px: 2, py: 1.5,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}
-      >
-        <Typography variant="subtitle2" noWrap sx={{ fontWeight: 'bold', color: '#334155', maxWidth: '60%' }}>
-          {lessonData.content.theme}
-        </Typography>
-        
-        <Chip 
-          label={
-            currentStep === 'lecture' ? 'STEP 1: 講義' :
-            currentStep === 'quiz' ? 'STEP 2: 演習' :
-            currentStep === 'essay' ? 'STEP 3: 記述' : 'Review'
-          }
-          color={currentStep === 'result' ? "success" : "primary"}
-          size="small"
-          sx={{ fontWeight: 'bold' }}
-        />
-      </Box>
-
-      {/* 2. Main Content Area */}
-      <Container maxWidth="md" sx={{ mt: 3 }}>
-        
-        {/* STEP 1: Lecture (講義) */}
-        {currentStep === 'lecture' && (
-          <Box className="animate-fadeIn">
-            <Box sx={{ p: { xs: 2, md: 4 }, borderRadius: 4, bgcolor: 'white', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+        {/* スコアカード */}
+        <Card 
+          elevation={0} 
+          sx={{ 
+            borderRadius: 6, 
+            border: '1px solid #eee', 
+            maxWidth: 500, 
+            mx: 'auto', 
+            mb: 4,
+            bgcolor: 'white'
+          }}
+        >
+          <CardContent sx={{ p: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'center' }}>
               
-              {/* テーマヘッダー */}
-              <Box sx={{ mb: 4, borderBottom: '2px solid #f1f5f9', pb: 3 }}>
-                <Typography variant="overline" color="primary" fontWeight="bold" letterSpacing={1.2}>
-                  TODAY'S THEME
+              {/* QUIZスコア */}
+              <Box>
+                <Typography variant="caption" sx={{ color: '#999', fontWeight: 'bold' }}>QUIZ</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#333' }}>
+                  <span style={{ color: '#4F46E5' }}>{scores.quizCorrect}</span>
+                  <span style={{ fontSize: '1rem', color: '#ccc' }}>/{scores.quizTotal}</span>
                 </Typography>
-                <Typography variant="h4" fontWeight="900" sx={{ mt: 1, mb: 2, color: '#1e293b' }}>
-                  {lessonData.content.theme}
-                </Typography>
-                
-                {/* AI戦略エッセンス（入試の急所 etc） */}
-                {lessonData.content.strategic_essence && (
-                  <Alert 
-                    severity="warning" 
-                    icon={<School fontSize="inherit" />}
-                    sx={{ 
-                      borderRadius: 2, 
-                      fontWeight: 'bold', 
-                      color: '#78350f', 
-                      bgcolor: '#fffbeb',
-                      border: '1px solid #fcd34d'
-                    }}
-                  >
-                    {lessonData.content.strategic_essence}
-                  </Alert>
-                )}
               </Box>
 
-              {/* 講義本文 (Markdown) */}
-              <SafeMarkdown content={lessonData.content.lecture} />
-              
-              {/* 重要語句リスト */}
-              <Box sx={{ mt: 6 }}>
-                <Typography variant="subtitle2" color="text.secondary" fontWeight="bold" sx={{ mb: 2 }}>
-                  重要語句チェック
+              <Box sx={{ width: 1, height: 40, bgcolor: '#eee', mx: 2 }} />
+
+              {/* ESSAYスコア */}
+              <Box>
+                <Typography variant="caption" sx={{ color: '#999', fontWeight: 'bold' }}>ESSAY</Typography>
+                <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#333' }}>
+                  <span style={{ color: '#4F46E5' }}>{scores.essayScore}</span>
+                  <span style={{ fontSize: '1rem', color: '#ccc' }}>/{scores.essayTotal}</span>
                 </Typography>
-                <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { md: '1fr 1fr' } }}>
-                  {lessonData.content.essential_terms.map((term, i) => (
-                    <Box key={i} sx={{ p: 2, border: '1px solid #e2e8f0', borderRadius: 2, bgcolor: '#f8fafc' }}>
-                      <Typography variant="subtitle2" fontWeight="bold" color="primary">
-                        {term.term}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {term.def}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
+              </Box>
+
+              <Box sx={{ width: 1, height: 40, bgcolor: '#eee', mx: 2 }} />
+
+              {/* TOTALスコア */}
+              <Box>
+                <Typography variant="caption" sx={{ color: '#999', fontWeight: 'bold' }}>TOTAL</Typography>
+                <Typography variant="h4" sx={{ fontWeight: '900', color: '#333' }}>
+                  {isNaN(totalScore) ? 0 : totalScore}
+                  <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>pt</span>
+                </Typography>
               </Box>
 
             </Box>
+          </CardContent>
+        </Card>
 
-            {/* Next Button */}
-            <Button
-              variant="contained"
-              fullWidth
-              size="large"
-              endIcon={<ArrowForward />}
-              onClick={() => setCurrentStep('quiz')}
-              sx={{ 
-                mt: 4, py: 2, borderRadius: 3, fontSize: '1.1rem', fontWeight: 'bold',
-                boxShadow: '0 10px 15px -3px rgba(79, 70, 229, 0.3)'
-              }}
-            >
-              演習問題に挑戦する
-            </Button>
+        {/* ★ Next Action Strategy (AI提案表示) */}
+        <Box sx={{ maxWidth: 500, mx: 'auto', mb: 6 }}>
+           <Card 
+             elevation={3}
+             sx={{ 
+               bgcolor: '#fffbf0',
+               border: '2px solid #f3e5ab',
+               borderRadius: 4,
+               position: 'relative',
+               overflow: 'visible'
+             }}
+           >
+             <Box sx={{
+               position: 'absolute',
+               top: -12,
+               left: '50%',
+               transform: 'translateX(-50%)',
+               bgcolor: '#8B4513',
+               color: 'white',
+               px: 2, py: 0.5,
+               borderRadius: 20,
+               fontSize: '0.75rem',
+               fontWeight: 'bold',
+               display: 'flex',
+               alignItems: 'center',
+               gap: 0.5
+             }}>
+               <EmojiEvents fontSize="small" /> Next Strategy
+             </Box>
+
+             <CardContent sx={{ pt: 4, pb: 3, textAlign: 'center' }}>
+               <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#4a4a4a', mb: 1 }}>
+                 AIからの推奨アクション
+               </Typography>
+               <Typography variant="body1" sx={{ fontWeight: 'bold', color: '#d97706', fontSize: '1.1rem' }}>
+                 {/* AI提案を表示。もしnullならデフォルト文言 */}
+                 {scores.nextAction || "今回の弱点を踏まえ、資料集の図版を確認しましょう。"}
+               </Typography>
+             </CardContent>
+           </Card>
+        </Box>
+
+        {/* Self Reflection (振り返り入力) */}
+        <Box sx={{ maxWidth: 500, mx: 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <span role="img" aria-label="pen" style={{ fontSize: '1.2rem', marginRight: '8px' }}>📝</span>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Self Reflection</Typography>
           </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            今回の学習で得た「気づき」や、次回の「具体的な目標」を一言残しましょう。
+          </Typography>
+          
+          <TextField
+            multiline
+            rows={4}
+            fullWidth
+            placeholder="例：荘園公領制の因果関係が曖昧だった。次は資料集の図版を確認してから挑む。"
+            variant="outlined"
+            sx={{ 
+              bgcolor: 'white', 
+              borderRadius: 3,
+              '& .MuiOutlinedInput-root': { borderRadius: 3 }
+            }}
+          />
+        </Box>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // STEP 1〜3 のレンダリング (講義・演習・記述)
+  // ----------------------------------------------------
+
+  // ローディング中
+  if (currentStep === 'loading' || isProcessing) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+        <p className="text-gray-600 font-medium animate-pulse">
+          AI講師が授業を準備中...
+        </p>
+      </div>
+    );
+  }
+
+  if (genError) return <div className="p-4 text-red-500">{genError}</div>;
+  if (!lessonData) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-10">
+      {/* 画面上部の進捗ヘッダー */}
+      <div className="sticky top-0 bg-white shadow-sm z-10 px-4 py-3 flex items-center justify-between">
+        <h1 className="font-bold text-gray-700 truncate max-w-[70%]">
+          {lessonData.content.theme}
+        </h1>
+        <div className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full border border-indigo-100">
+          {currentStep === 'lecture' && 'STEP 1: 講義'}
+          {currentStep === 'quiz' && 'STEP 2: 演習'}
+          {currentStep === 'essay' && 'STEP 3: 記述'}
+          {currentStep === 'result' && 'Review'}
+        </div>
+      </div>
+
+      <main className="max-w-2xl mx-auto p-4">
+        {/* STEP 1: 講義 */}
+        {currentStep === 'lecture' && (
+          <div className="animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-8">
+              <div className="mb-6 border-b border-gray-100 pb-4">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Theme</span>
+                <h2 className="text-2xl font-bold text-gray-800 mt-1 mb-2">
+                  {lessonData.content.theme}
+                </h2>
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded-r text-sm text-gray-700">
+                  <span className="font-bold block text-yellow-600 mb-1">
+                    {learningMode === 'school' ? '📌 テストに出る！' : '⚡ 入試の急所'}
+                  </span>
+                  講義を読んで、歴史の流れを掴みましょう。
+                </div>
+              </div>
+              
+              {/* Markdown講義表示 */}
+              <SafeMarkdown content={lessonData.content.lecture} />
+            </div>
+
+            <button
+              onClick={() => setCurrentStep('quiz')}
+              className="w-full mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center"
+            >
+              演習問題へ進む
+              <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+            </button>
+          </div>
         )}
 
-        {/* STEP 2: Quiz (演習) */}
+        {/* STEP 2: 演習 (QuizSection) */}
         {currentStep === 'quiz' && (
           <QuizSection 
-            lessonData={lessonData}
-            onAnswerOne={handleQuizLogUpdate}
-            onComplete={() => setCurrentStep('essay')}
+            lessonData={lessonData} 
+            onComplete={handleQuizComplete} // 正しいハンドラを渡す
           />
         )}
 
-        {/* STEP 3: Essay (記述) */}
+        {/* STEP 3: 記述 (EssaySection) */}
         {currentStep === 'essay' && (
-          <EssaySection
+          <EssaySection 
             apiKey={apiKey}
-            lessonData={lessonData}
+            lessonData={lessonData} 
             learningMode={learningMode}
-            onFinish={handleEssayComplete} // 採点結果を受け取り、保存してResultへ
+            onFinish={handleEssayComplete} // 正しいハンドラを渡す
           />
         )}
-
-        {/* STEP 4: Summary (結果 & NotebookLM連携) */}
-        {currentStep === 'result' && gradingResult && (
-          <SummaryScreen
-            lessonData={lessonData}
-            gradingResult={gradingResult}
-            quizLog={quizLog}
-            onFinish={handleFinishSession}
-          />
-        )}
-
-      </Container>
-    </Box>
+      </main>
+    </div>
   );
 };

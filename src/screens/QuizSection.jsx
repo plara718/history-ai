@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Card, CardContent, Typography, Button, IconButton, 
   List, ListItem, ListItemText, ListItemSecondaryAction, 
-  Chip, Collapse, Paper, Alert, AlertTitle 
+  Chip, Collapse 
 } from '@mui/material';
 import { 
   CheckCircle as CheckIcon, 
@@ -15,39 +15,64 @@ import { SafeMarkdown } from '../components/SafeMarkdown';
 
 /**
  * 演習セクションのメインコンポーネント
+ * - 正誤問題と整序問題を出題
+ * - スコアを集計して親へ通知
  */
 export const QuizSection = ({ lessonData, onComplete }) => {
   // 正誤問題と整序問題を1つのリストに結合
   const questions = useMemo(() => {
-    const q1 = lessonData.content.true_false.map(q => ({ ...q, type: 'tf' }));
-    const q2 = lessonData.content.sort.map(q => ({ ...q, type: 'sort' }));
+    // lessonDataがまだロードされていない場合の安全策
+    if (!lessonData || !lessonData.content) return [];
+
+    const q1 = (lessonData.content.true_false || []).map(q => ({ ...q, type: 'tf' }));
+    const q2 = (lessonData.content.sort || []).map(q => ({ ...q, type: 'sort' }));
     return [...q1, ...q2];
   }, [lessonData]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isAnswered, setIsAnswered] = useState(false);
-  const [isCorrect, setIsCorrect] = useState(false);
-  
-  // 現在の問題データ
+  const [isAnswered, setIsAnswered] = useState(false); // 回答済みかどうかのフラグ
+  const [isCorrect, setIsCorrect] = useState(false);   // 現在の問題が正解だったか
+  const [correctCount, setCorrectCount] = useState(0); // 正解数の累積カウント
+
   const currentQuestion = questions[currentIndex];
   const isLastQuestion = currentIndex === questions.length - 1;
 
-  // 次の問題へ進む
+  // ★ 追加: 問題が切り替わったら画面トップへスクロール
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentIndex]);
+
+  // 次の問題へ進む（または完了）
   const handleNext = () => {
+    // 現在の問題の正解数を確定させる
+    // ※ state更新は非同期のため、直前の isCorrect を使って計算値を渡す
+    const newCorrectCount = correctCount + (isCorrect ? 1 : 0);
+
     if (isLastQuestion) {
-      onComplete(); // 親コンポーネントへ通知（記述パートへ遷移）
+      // ★ 修正: 完了時に「最終的な正解数」と「総問題数」を親に渡す
+      onComplete({ 
+        correct: newCorrectCount, 
+        total: questions.length 
+      });
     } else {
+      // 次の問題へ
+      if (isCorrect) {
+        setCorrectCount(prev => prev + 1);
+      }
       setIsAnswered(false);
       setIsCorrect(false);
       setCurrentIndex(prev => prev + 1);
     }
   };
 
-  // 正誤判定後の処理
+  // ユーザーが回答した瞬間の処理
   const handleResult = (result) => {
     setIsCorrect(result);
     setIsAnswered(true);
   };
+
+  // データがない場合のガード
+  if (!currentQuestion) return null;
 
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', p: 2 }}>
@@ -94,14 +119,14 @@ export const QuizSection = ({ lessonData, onComplete }) => {
               />
             )
           ) : (
-            // 回答済みの場合の表示（自分の回答など）
+            // 回答済みの場合の表示（結果待ち・解説閲覧モード）
             <Box sx={{ textAlign: 'center', py: 2 }}>
                 <Typography variant="body2" color="text.secondary">回答完了</Typography>
             </Box>
           )}
         </CardContent>
 
-        {/* 解説＆結果エリア (アコーディオン表示) */}
+        {/* 解説＆結果エリア (回答後にアコーディオン展開) */}
         <Collapse in={isAnswered}>
           <Box sx={{ p: 3, bgcolor: isCorrect ? '#f0fdf4' : '#fef2f2', borderTop: '1px solid #eee' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -142,15 +167,14 @@ export const QuizSection = ({ lessonData, onComplete }) => {
 };
 
 /**
- * サブコンポーネント: 正誤問題
+ * サブコンポーネント: 正誤問題 (True/False)
  */
 const TrueFalseQuestion = ({ question, onAnswer }) => {
   const handleSelect = (userSelectBool) => {
-    // APIの正解データ(correct)と比較 (correctは true/false ではなく 0/1 の場合もあるため柔軟に)
-    // プロンプトでは 0=True, 1=False と指定していた場合と、booleanの場合があるため調整
-    // ここではプロンプトで {options: ["True", "False"], correct: 0} としているので、0がTrue(正)とする想定
+    // APIの正解データ(correct)と比較
+    // プロンプトでは {options: ["True", "False"], correct: 0} としているため、0=True, 1=False とみなす
     const isTrue = userSelectBool === true;
-    const correctIsFirstOption = question.correct === 0; // 0番目が正解ならTrueが正解
+    const correctIsFirstOption = question.correct === 0; 
     
     // ユーザーがTrueを選び、正解も0番目(True)なら正解
     const result = (isTrue && correctIsFirstOption) || (!isTrue && !correctIsFirstOption);
@@ -207,7 +231,7 @@ const SortQuestion = ({ question, onAnswer }) => {
   };
 
   const handleSubmit = () => {
-    // correct_order (例: [2, 0, 1, 3]) と現在の order が完全一致するか
+    // correct_order (例: [2, 0, 1, 3]) と現在の order が完全一致するかチェック
     const isCorrect = JSON.stringify(order) === JSON.stringify(question.correct_order);
     onAnswer(isCorrect);
   };

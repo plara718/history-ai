@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, Card, CardContent, Typography, TextField, Button, 
   CircularProgress, Alert, Divider, Paper, AlertTitle, Chip 
@@ -7,7 +7,7 @@ import {
   Send as SendIcon, 
   AutoFixHigh as AutoFixIcon,
   EmojiEvents as TrophyIcon,
-  Flag as FlagIcon // ギブアップ用アイコン
+  Flag as FlagIcon
 } from '@mui/icons-material';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { useLessonGrader } from '../hooks/useLessonGrader';
@@ -20,6 +20,13 @@ export const EssaySection = ({ apiKey, lessonData, learningMode, onFinish }) => 
   const essayData = lessonData.content.essay;
   const wordLimit = learningMode === 'school' ? 80 : 150;
 
+  // ★ 追加: 結果画面（Before/After）に切り替わったらトップへスクロール
+  useEffect(() => {
+    if (result) {
+      window.scrollTo(0, 0);
+    }
+  }, [result]);
+
   // 通常の提出処理（AI採点）
   const handleSubmit = async () => {
     if (!userAnswer.trim()) return;
@@ -30,13 +37,10 @@ export const EssaySection = ({ apiKey, lessonData, learningMode, onFinish }) => 
     }
   };
 
-  // ★ ギブアップ処理（ローカルデータで即時表示）
+  // ギブアップ処理（ローカルデータで即時表示）
   const handleGiveUp = () => {
-    // lessonData内にある模範解答(model)をそのまま表示用データに変換
-    // ※ useLessonGeneratorで生成された model には既にMarkdown形式で解説が入っている
     const mockResult = {
       score: 0,
-      // ユーザーの回答がないので、いきなり模範解答を表示する構成にする
       correction: `
 ### 🏳️ ギブアップ
 今回は回答をスキップしました。まずは模範解答を読んで、構成をインプットしましょう！
@@ -46,9 +50,23 @@ export const EssaySection = ({ apiKey, lessonData, learningMode, onFinish }) => 
 ${essayData.model}
       `, 
       overall_comment: "記述問題は「型」を覚えることが近道です。模範解答の因果関係（A→B）を意識して書き写してみましょう。",
-      weakness_tag: "#模範解答の分析"
+      weakness_tag: "#模範解答の分析",
+      recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。" // ギブアップ時のデフォルトアクション
     };
     setResult(mockResult);
+  };
+
+  // ★ 修正: 完了時に親コンポーネントへデータを渡す
+  const handleFinish = () => {
+    if (result) {
+      onFinish({ 
+        score: result.score,
+        recommended_action: result.recommended_action 
+      });
+    } else {
+      // 万が一resultがない場合（あり得ないが安全策）
+      onFinish({ score: 0, recommended_action: null });
+    }
   };
 
   return (
@@ -112,7 +130,7 @@ ${essayData.model}
                     {isGrading ? 'AI採点官が添削中...' : '回答を提出して添削を受ける'}
                 </Button>
 
-                {/* ギブアップボタン（控えめなデザイン） */}
+                {/* ギブアップボタン */}
                 {!isGrading && (
                     <Button
                         variant="text"
@@ -122,7 +140,7 @@ ${essayData.model}
                         startIcon={<FlagIcon />}
                         sx={{ color: 'text.secondary', fontWeight: 'bold' }}
                     >
-                        分かないので答えを見る（ギブアップ）
+                        分からないので答えを見る（ギブアップ）
                     </Button>
                 )}
               </Box>
@@ -132,7 +150,7 @@ ${essayData.model}
               )}
             </Box>
           ) : (
-            // --- 結果表示モード ---
+            // --- 結果表示モード (Before/After) ---
             <Box className="animate-fadeIn">
               
               {/* スコア表示 */}
@@ -161,12 +179,12 @@ ${essayData.model}
                 {result.overall_comment}
               </Alert>
 
-              {/* 完了ボタン */}
+              {/* 完了ボタン（ここを押すとLessonScreenの結果画面へ遷移） */}
               <Button
                 variant="outlined"
                 fullWidth
                 size="large"
-                onClick={onFinish}
+                onClick={handleFinish} // ★ 修正版関数を呼ぶ
                 sx={{ mt: 4, py: 1.5, borderRadius: 3, fontWeight: 'bold' }}
               >
                 学習を終了する

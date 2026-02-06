@@ -10,7 +10,7 @@ import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { APP_ID } from '../lib/constants';
 
-// 既存のコンポーネントを維持
+// コンポーネントをインポート
 import LearningHeatmap from '../components/LearningHeatmap';
 
 const LogScreen = ({ userId, heatmapStats }) => {
@@ -24,7 +24,7 @@ const LogScreen = ({ userId, heatmapStats }) => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
 
-  // --- カレンダーロジック (HistoryScreenから移植) ---
+  // --- カレンダーロジック ---
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -45,7 +45,7 @@ const LogScreen = ({ userId, heatmapStats }) => {
     return days;
   }, [currentDate]);
 
-  // --- データ取得ロジック (月ごとに取得) ---
+  // --- データ取得ロジック ---
   useEffect(() => {
     const fetchMonthlyHistory = async () => {
       if (!userId) return;
@@ -104,14 +104,11 @@ const LogScreen = ({ userId, heatmapStats }) => {
   // スコア表示ヘルパー
   const getScoreInfo = (item) => {
     if (item.scores) {
-        // 新仕様のデータ
         const totalEarned = (item.scores.quizCorrect || 0) + (item.scores.essayScore || 0);
         const totalMax = (item.scores.quizTotal || 0) + (item.scores.essayTotal || 10);
-        // 10点満点換算して返す
         const scaledScore = totalMax > 0 ? Math.round((totalEarned / totalMax) * 10) : 0;
         return { val: scaledScore, max: 10 };
     }
-    // 旧仕様データのフォールバック
     if (item.gradingResult) return { val: item.gradingResult.score, max: 10 };
     return null;
   };
@@ -119,18 +116,14 @@ const LogScreen = ({ userId, heatmapStats }) => {
   return (
     <Container maxWidth="md" className="animate-fadeIn" sx={{ pb: 10 }}>
       {/* ヘッダーエリア */}
-      <Box mb={2} textAlign="center">
+      <Box mb={4} textAlign="center">
         <Typography variant="overline" color="text.secondary" fontWeight="bold">
           LEARNING LOGS
         </Typography>
-        <Typography variant="h5" fontWeight="900" sx={{ mb: 2 }}>
+        <Typography variant="h5" fontWeight="900">
           学習の軌跡
         </Typography>
-        
-        {/* ヒートマップ (既存機能維持) */}
-        <Box sx={{ maxWidth: 500, mx: 'auto', mb: 4 }}>
-            <LearningHeatmap stats={heatmapStats} />
-        </Box>
+        {/* ★ここにあったヒートマップを削除 */}
       </Box>
 
       {/* --- カレンダーエリア --- */}
@@ -193,7 +186,7 @@ const LogScreen = ({ userId, heatmapStats }) => {
       </Card>
 
       {/* --- セッションリストエリア --- */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: 6 }}>
         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, ml: 1, display: 'flex', alignItems: 'center' }}>
           <AccessTime sx={{ fontSize: 16, mr: 0.5 }} />
           {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日の記録
@@ -263,6 +256,11 @@ const LogScreen = ({ userId, heatmapStats }) => {
             </Box>
           )}
         </List>
+      </Box>
+
+      {/* ★ 移動: ヒートマップをここに配置 */}
+      <Box sx={{ maxWidth: 500, mx: 'auto', mb: 4 }}>
+          <LearningHeatmap stats={heatmapStats} />
       </Box>
 
       {/* --- 詳細ダイアログ --- */}

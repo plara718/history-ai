@@ -31,7 +31,7 @@ const AdminDashboard = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   
-  // 処理中ステート（分割）
+  // 処理中ステート
   const [analyzingPerf, setAnalyzingPerf] = useState(false);
   const [generatingCol, setGeneratingCol] = useState(false);
   
@@ -85,17 +85,23 @@ const AdminDashboard = () => {
     setLogs([]);
     setAnalysisReport(null);
     setParentAdvice(null);
+    setInterventionFocus("");
+    setInterventionInterest("");
+
     try {
+      // 1. 学習ログ取得
       const q = query(
         collection(db, 'artifacts', APP_ID, 'users', targetUid, 'daily_progress'),
         orderBy('timestamp', 'desc'), limit(10)
       );
       const snapshot = await getDocs(q);
       const fetchedLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      
       if (fetchedLogs.length === 0) {
           setErrorMsg("学習データが見つかりませんでした。");
       } else {
           setLogs(fetchedLogs);
+          // 2. 既存の介入設定があれば取得
           const settingsSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'interventions', targetUid));
           if (settingsSnap.exists()) {
               const s = settingsSnap.data();
@@ -241,12 +247,12 @@ const AdminDashboard = () => {
 
       {/* グローバル設定 */}
       <Paper elevation={0} sx={{ p: 3, mb: 4, borderRadius: 3, border: '2px solid', borderColor: 'indigo.100', bgcolor: 'white' }}>
-          <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="primary" display="flex" alignItems="center" gap={1}>
-              <SettingsIcon fontSize="small"/> システム全体設定
-          </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" mt={2} spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="space-between" spacing={2}>
               <Box>
-                  <Typography variant="body2" fontWeight="bold">AI動作モード</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" color="primary" display="flex" alignItems="center" gap={1}>
+                      <SettingsIcon fontSize="small"/> システム全体設定
+                  </Typography>
+                  <Typography variant="body2" fontWeight="bold" mt={1}>AI動作モード</Typography>
                   <Typography variant="caption" color="text.secondary">全ユーザーの生成モデルを一括変更します</Typography>
               </Box>
               <ToggleButtonGroup
@@ -293,6 +299,7 @@ const AdminDashboard = () => {
           </Stack>
       </Paper>
 
+      {/* ログ一覧とアクションボタン */}
       {logs.length > 0 && (
           <div className="animate-fade-in">
               <Typography variant="h6" fontWeight="bold" gutterBottom color="text.secondary" display="flex" alignItems="center" gap={1}>

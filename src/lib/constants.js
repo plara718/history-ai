@@ -1,5 +1,6 @@
 /**
  * アプリケーション定数定義
+ * アプリ全体で使用する設定値、テキスト、IDなどを管理
  */
 
 // アプリケーション識別子 (Firestoreのパス用)
@@ -27,10 +28,19 @@ export const TEXTBOOK_UNITS = [
   "戦後復興と現代の日本"
 ];
 
-// 難易度別の表示用ラベル、説明、AIへの指示
-// label: ボタンに表示する短い名前
-// desc: ボタンの下に表示する詳細説明
-// ai: AIプロンプトに埋め込む指示
+/**
+ * 難易度別の表示用ラベル、説明、AIへの指示
+ * * structure:
+ * {
+ * [mode]: {
+ * [difficulty]: {
+ * label: string, // ボタン表示名
+ * desc: string,  // 説明文
+ * ai: string     // プロンプトへの追加指示
+ * }
+ * }
+ * }
+ */
 export const DIFFICULTY_DESCRIPTIONS = {
   school: {
     easy: {
@@ -67,7 +77,6 @@ export const DIFFICULTY_DESCRIPTIONS = {
     }
   }
 };
-
 
 // ロード中に表示される豆知識
 export const LOADING_TRIVIA = [

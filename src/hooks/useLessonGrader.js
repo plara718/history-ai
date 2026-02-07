@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import { callAI } from '../lib/api';
+import { generateTagPrompt } from '../lib/tagConfig';
 
-export const useLessonGrader = (apiKey) => {
+export const useLessonGrader = (apiKey, userId) => {
   const [isGrading, setIsGrading] = useState(false);
   const [gradeError, setGradeError] = useState(null);
 
+  /**
+   * 記述問題の採点を実行
+   * @param {object} lessonData - レッスンデータ全体
+   * @param {string} userEssayAnswer - ユーザーの回答
+   * @param {string} learningMode - 学習モード
+   */
   const gradeLesson = async (lessonData, userEssayAnswer, learningMode) => {
     if (!apiKey) {
       setGradeError("APIキーが不足しています");
@@ -15,6 +22,9 @@ export const useLessonGrader = (apiKey) => {
     setGradeError(null);
 
     try {
+      // ミスタグの定義リストを生成
+      const mistakeTagsDef = generateTagPrompt('MISTAKE');
+
       // 1. モード別の採点人格と評価基準
       const graderPersona = learningMode === 'school'
         ? `
@@ -32,20 +42,29 @@ export const useLessonGrader = (apiKey) => {
           - **アドバイス**: 「採点官に評価される書き方（テクニック）」を伝授せよ。
         `;
 
-      // 2. 採点プロンプトの構築（recommended_actionを追加）
+      // 2. 採点プロンプトの構築
       const prompt = `
       あなたは日本史のプロフェッショナルな採点官です。
       以下のデータに基づき、ユーザーの記述回答を採点し、劇的な改善案（添削）と、**次の具体的な学習指針**を作成してください。
 
       【前提データ】
-      - 学習テーマ: ${lessonData.content.theme}
-      - 問題文: ${lessonData.content.essay.q}
-      - 採点基準(Model): ${JSON.stringify(lessonData.content.essay.model)}
+      - 学習テーマ: ${lessonData.theme}
+      - 問題文: ${lessonData.essay?.q || "不明"}
+      - 採点基準(Model): ${lessonData.essay?.model || "特になし"}
       - ユーザーの回答: "${userEssayAnswer}"
       - モード: ${learningMode}
 
       【採点ガイドライン】
       ${graderPersona}
+
+      【弱点タグの判定ルール (重要)】
+      ユーザーの回答が不十分な場合、その原因を以下の定義リストから分析し、タグIDを選定してください。
+      [Defined Mistake Tags]
+      ${mistakeTagsDef}
+
+      - **Score < 8 (部分点/不正解)**: 不足している要素に対応するタグIDを配列に含めてください。（例: 背景が抜けているなら 'err_cause'）
+      - **Score >= 8 (合格)**: タグは空配列 [] にしてください。
+      - **白紙/ギブアップ**: 回答が "わからない" や空白に近い場合は、問題の意図に関連するタグをすべて含めてください。
 
       【出力形式：JSONのみ】
       以下のキーを持つJSONオブジェクトを出力せよ。
@@ -69,17 +88,15 @@ export const useLessonGrader = (apiKey) => {
       3. **overall_comment**: 
          学習者への総評。100〜150文字。
       
-      4. **weakness_tag**: 
-         今回露呈した弱点を表すハッシュタグ（例: "#摂関政治の仕組み"）。
+      4. **tags**: 
+         分析した弱点タグIDの配列（例: ["err_cause", "err_basic_fact"]）。合格なら空配列。
       
       5. **recommended_action**: 
          ユーザーの得点と弱点に基づき、次に取るべき「具体的な行動」を40文字以内で提案せよ。
          例: "「荘園」の単元をEasyモードで復習しましょう" や "次は「鎌倉文化」に進んでOKです" など。
-
-      JSON出力:
       `;
 
-      const result = await callAI("記述採点", prompt, apiKey, null);
+      const result = await callAI("記述採点", prompt, apiKey, userId);
 
       return result;
 

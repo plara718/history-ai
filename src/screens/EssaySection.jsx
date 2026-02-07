@@ -1,239 +1,359 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Box, Card, CardContent, Typography, TextField, Button, 
-  CircularProgress, Alert, Divider, Paper, AlertTitle, Chip 
+  CircularProgress, Alert, Divider, Paper, Chip, Stack,
+  Fade, LinearProgress
 } from '@mui/material';
 import { 
   Send as SendIcon, 
   AutoFixHigh as AutoFixIcon,
   EmojiEvents as TrophyIcon,
-  Flag as FlagIcon
+  Flag as FlagIcon,
+  Lightbulb as LightbulbIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { useLessonGrader } from '../hooks/useLessonGrader';
+import { scrollToTop } from '../lib/utils';
 
 /**
- * 簡易Debounceフック (lodash依存なしで実装)
- * 指定した時間(ms)だけ処理を遅延させる
+ * 記述問題セクション
+ * ユーザーが回答を入力し、AIによる即時採点とフィードバックを受ける
  */
-const useDebouncedCallback = (callback, delay) => {
-  const timer = useRef(null);
-
-  const debouncedFunction = useCallback((...args) => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-    }
-    timer.current = setTimeout(() => {
-      callback(...args);
-    }, delay);
-  }, [callback, delay]);
-
-  return debouncedFunction;
-};
-
 export const EssaySection = ({ 
   apiKey, 
+  userId, // useLessonGraderのために必要
   lessonData, 
   learningMode, 
-  initialDraft, // ★ 復元された下書きデータ
-  onDraftChange, // ★ 下書き変更通知用
+  initialDraft, 
+  onDraftChange, 
   onFinish 
 }) => {
-  // 初期値を復元データから設定
   const [userAnswer, setUserAnswer] = useState(initialDraft || '');
   const [result, setResult] = useState(null);
   
-  const { gradeLesson, isGrading, gradeError } = useLessonGrader(apiKey);
-  const essayData = lessonData.content.essay;
+  // カスタムフック (userIdを追加)
+  const { gradeLesson, isGrading, gradeError } = useLessonGrader(apiKey, userId);
+  
+  const essayData = lessonData?.essay || {};
   const wordLimit = learningMode === 'school' ? 80 : 150;
+  
+  // 文字数に応じたプログレスバー計算
+  const progress = Math.min((userAnswer.length / wordLimit) * 100, 100);
+  const isOverLimit = userAnswer.length > wordLimit + 20;
 
-  // ★ 自動スクロール: 結果画面（Before/After）が表示されたらトップへ
+  // 自動スクロール: 結果表示時
   useEffect(() => {
     if (result) {
-      window.scrollTo(0, 0);
+      scrollToTop();
     }
   }, [result]);
 
-  // ★ 自動保存: 入力が止まってから1秒後に親へ通知 (Debounce)
-  const debouncedSave = useDebouncedCallback((text) => {
-    if (onDraftChange) {
-      onDraftChange(text);
-    }
-  }, 1000);
+  // Debounce保存ロジック (useRefでタイマー管理)
+  const saveTimerRef = useRef(null);
 
-  // テキスト変更時の処理
-  const handleChange = (e) => {
+  const handleTextChange = (e) => {
     const text = e.target.value;
     setUserAnswer(text);
-    debouncedSave(text); // 非同期で保存
+
+    // 既存のタイマーをクリア
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    // 1秒後に保存を実行
+    saveTimerRef.current = setTimeout(() => {
+      if (onDraftChange) {
+        onDraftChange(text);
+      }
+    }, 1000);
   };
 
-  // 通常の提出処理（AI採点）
+  // 提出処理 (AI採点)
   const handleSubmit = async () => {
     if (!userAnswer.trim()) return;
     
+    // 採点実行
     const gradingResult = await gradeLesson(lessonData, userAnswer, learningMode);
+    
     if (gradingResult) {
       setResult(gradingResult);
+      // 結果確定時にも保存（念のため）
+      if (onDraftChange) onDraftChange(userAnswer);
     }
   };
 
-  // ギブアップ処理（ローカルデータで即時表示）
+  // ギブアップ処理
   const handleGiveUp = () => {
     const mockResult = {
       score: 0,
       correction: `
-### 🏳️ ギブアップ
+### 🏳️ ギブアップ (Model Answer)
 今回は回答をスキップしました。まずは模範解答を読んで、構成をインプットしましょう！
 
----
+**模範解答**:
+> ${essayData.model || "解答例がありません"}
 
-${essayData.model}
+**ポイント**:
+- 記述問題は「型（AだからB）」を覚えることが近道です。
+- 模範解答を書き写し、因果の流れを確認しましょう。
       `, 
       overall_comment: "記述問題は「型」を覚えることが近道です。模範解答の因果関係（A→B）を意識して書き写してみましょう。",
-      weakness_tag: "#模範解答の分析",
-      recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。" // ギブアップ時の推奨アクション
+      tags: ["err_basic_fact"], // デフォルトのタグ
+      recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。"
     };
     setResult(mockResult);
   };
 
-  // 完了時に親コンポーネントへデータを渡す
-  const handleFinish = () => {
-    if (result) {
+  // 完了ボタン (結果確認後)
+  const handleFinishConfirm = () => {
+    if (onFinish) {
       onFinish({ 
-        score: result.score,
-        recommended_action: result.recommended_action 
+        score: result ? result.score : 0,
+        // AIが推奨アクションを返していればそれを使う
+        recommended_action: result ? result.recommended_action : null 
       });
-    } else {
-      // 万が一resultがない場合（安全策）
-      onFinish({ score: 0, recommended_action: null });
     }
   };
 
   return (
-    <Box sx={{ maxWidth: 700, mx: 'auto', p: 2 }}>
-      {/* 問題表示エリア */}
-      <Card elevation={3} sx={{ borderRadius: 4, mb: 3, border: '1px solid #e0e0e0' }}>
-        <CardContent sx={{ p: 4 }}>
-          <Typography variant="overline" color="primary" sx={{ fontWeight: 'bold' }}>
-            Last Challenge: Essay
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 'bold', mt: 1, mb: 3 }}>
-            Q. {essayData.q}
-          </Typography>
-
-          {essayData.hint && (
-             <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-               ヒント: {essayData.hint}
-             </Alert>
-          )}
-
-          {!result ? (
-            // --- 回答入力モード ---
-            <Box>
-              <TextField
-                multiline
-                rows={6}
-                fullWidth
-                variant="outlined"
-                placeholder={`ここに入力してください... (目安: ${wordLimit}文字前後)`}
-                value={userAnswer}
-                onChange={handleChange} // ★ 修正: Debounce付きハンドラ
-                disabled={isGrading}
+    <Box sx={{ maxWidth: 800, mx: 'auto', p: { xs: 2, md: 4 } }}>
+      <Fade in={true} timeout={800}>
+        <Card 
+          elevation={0} 
+          sx={{ 
+            borderRadius: 4, 
+            border: '1px solid', 
+            borderColor: 'divider',
+            overflow: 'visible' // バッジ等がはみ出せるように
+          }}
+        >
+          <CardContent sx={{ p: { xs: 3, md: 5 } }}>
+            
+            {/* ヘッダー */}
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Box 
                 sx={{ 
-                  bgcolor: '#f9fafb', 
-                  borderRadius: 2,
-                  '& .MuiOutlinedInput-root': { borderRadius: 2 }
+                  width: 48, height: 48, 
+                  borderRadius: '50%', 
+                  bgcolor: 'secondary.50', 
+                  color: 'secondary.main',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  mr: 2
                 }}
-              />
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-                <Typography variant="caption" color={userAnswer.length > wordLimit + 20 ? 'error' : 'text.secondary'}>
-                  {userAnswer.length}文字
+              >
+                <EditIcon />
+              </Box>
+              <Box>
+                <Typography variant="overline" color="secondary.main" fontWeight="bold" letterSpacing={1.2}>
+                  Final Challenge
+                </Typography>
+                <Typography variant="h5" fontWeight="900" color="text.primary">
+                  Essay Question
                 </Typography>
               </Box>
+            </Box>
 
-              {/* ボタンエリア */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
-                {/* 提出ボタン */}
-                <Button
-                    variant="contained"
-                    size="large"
+            {/* 問題文 */}
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, lineHeight: 1.6 }}>
+              Q. {essayData.q}
+            </Typography>
+
+            {essayData.hint && (
+              <Alert 
+                icon={<LightbulbIcon fontSize="inherit" />} 
+                severity="info" 
+                sx={{ mb: 4, borderRadius: 3, bgcolor: 'info.50', color: 'info.900' }}
+              >
+                <Typography variant="body2" fontWeight="medium">
+                  Hint: {essayData.hint}
+                </Typography>
+              </Alert>
+            )}
+
+            {!result ? (
+              /* --- 入力モード --- */
+              <Box>
+                <Box sx={{ position: 'relative', mb: 1 }}>
+                  <TextField
+                    multiline
+                    minRows={6}
+                    maxRows={12}
                     fullWidth
-                    onClick={handleSubmit}
-                    disabled={isGrading || !userAnswer.trim()}
-                    startIcon={isGrading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+                    placeholder={`ここに入力してください... (目安: ${wordLimit}文字前後)\n\n例: 「〜という背景があり、〜の結果となった。」`}
+                    value={userAnswer}
+                    onChange={handleTextChange}
+                    disabled={isGrading}
                     sx={{ 
-                    py: 1.5, borderRadius: 3, fontWeight: 'bold',
-                    background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
-                    boxShadow: '0 3px 5px 2px rgba(33, 203, 243, .3)'
+                      '& .MuiOutlinedInput-root': { 
+                        borderRadius: 3,
+                        bgcolor: 'background.paper',
+                        fontSize: '1.1rem',
+                        lineHeight: 1.8
+                      }
                     }}
-                >
-                    {isGrading ? 'AI採点官が添削中...' : '回答を提出して添削を受ける'}
-                </Button>
+                  />
+                </Box>
 
-                {/* ギブアップボタン */}
-                {!isGrading && (
+                {/* 文字数カウンター & プログレス */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4 }}>
+                  <Box sx={{ width: '60%', mr: 2 }}>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={progress} 
+                      color={isOverLimit ? "error" : progress > 80 ? "success" : "primary"}
+                      sx={{ height: 6, borderRadius: 3 }}
+                    />
+                  </Box>
+                  <Typography 
+                    variant="caption" 
+                    fontWeight="bold" 
+                    color={isOverLimit ? 'error.main' : 'text.secondary'}
+                  >
+                    {userAnswer.length} / {wordLimit} 文字
+                  </Typography>
+                </Box>
+
+                {/* アクションボタン */}
+                <Stack spacing={2}>
+                  <Button
+                      variant="contained"
+                      size="large"
+                      fullWidth
+                      onClick={handleSubmit}
+                      disabled={isGrading || !userAnswer.trim()}
+                      startIcon={isGrading ? <CircularProgress size={24} color="inherit" /> : <SendIcon />}
+                      sx={{ 
+                        py: 2, 
+                        borderRadius: 3, 
+                        fontWeight: 'bold',
+                        fontSize: '1.1rem',
+                        background: (theme) => isGrading ? theme.palette.action.disabled : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                        boxShadow: '0 8px 16px -4px rgba(79, 70, 229, 0.3)',
+                        transition: 'transform 0.2s',
+                        '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 12px 20px -6px rgba(79, 70, 229, 0.4)' }
+                      }}
+                  >
+                      {isGrading ? 'AI先生が採点中...' : '回答を提出する'}
+                  </Button>
+
+                  {!isGrading && (
                     <Button
                         variant="text"
                         color="inherit"
-                        size="medium"
                         onClick={handleGiveUp}
                         startIcon={<FlagIcon />}
-                        sx={{ color: 'text.secondary', fontWeight: 'bold' }}
+                        sx={{ color: 'text.secondary', fontWeight: 'bold', borderRadius: 2 }}
                     >
-                        分からないので答えを見る（ギブアップ）
+                        降参して模範解答を見る
                     </Button>
+                  )}
+                </Stack>
+                
+                {gradeError && (
+                  <Alert severity="error" sx={{ mt: 3, borderRadius: 2 }}>
+                    {gradeError}
+                  </Alert>
                 )}
               </Box>
-              
-              {gradeError && (
-                <Alert severity="error" sx={{ mt: 2 }}>{gradeError}</Alert>
-              )}
-            </Box>
-          ) : (
-            // --- 結果表示モード (Before/After) ---
-            <Box className="animate-fadeIn">
-              
-              {/* スコア表示 */}
-              <Box sx={{ textAlign: 'center', mb: 4, position: 'relative' }}>
-                <TrophyIcon sx={{ fontSize: 60, color: result.score > 0 ? '#ffb300' : '#bdbdbd', mb: 1 }} />
-                <Typography variant="h3" sx={{ fontWeight: '900', color: '#333' }}>
-                  {result.score}<span style={{fontSize: '1.5rem', fontWeight: 'normal'}}>/10</span>
-                </Typography>
-                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
-                   {result.score === 0 ? 'Review Mode' : 'AI Score'}
-                </Typography>
+            ) : (
+              /* --- 結果表示モード --- */
+              <Box className="animate-fadeIn">
+                
+                {/* スコアバッジ */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
+                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress 
+                      variant="determinate" 
+                      value={100} 
+                      size={120} 
+                      thickness={4} 
+                      sx={{ color: 'grey.100' }} 
+                    />
+                    <CircularProgress 
+                      variant="determinate" 
+                      value={result.score * 10} 
+                      size={120} 
+                      thickness={4} 
+                      sx={{ 
+                        color: result.score >= 8 ? 'success.main' : result.score >= 5 ? 'warning.main' : 'error.main',
+                        position: 'absolute',
+                        left: 0,
+                        strokeLinecap: 'round'
+                      }} 
+                    />
+                    <Box
+                      sx={{
+                        top: 0, left: 0, bottom: 0, right: 0,
+                        position: 'absolute',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexDirection: 'column'
+                      }}
+                    >
+                      <TrophyIcon 
+                        color={result.score >= 8 ? "success" : "action"} 
+                        fontSize="large" 
+                        sx={{ mb: 0.5 }}
+                      />
+                      <Typography variant="h4" component="div" fontWeight="900" color="text.primary">
+                        {result.score}<span style={{fontSize: '1rem', color:'#9ca3af'}}>/10</span>
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+
+                <Divider sx={{ my: 4 }}>
+                  <Chip 
+                    icon={<AutoFixIcon />} 
+                    label="AI Correction & Feedback" 
+                    color="primary" 
+                    variant="outlined" 
+                    sx={{ fontWeight: 'bold', border: 'none', bgcolor: 'primary.50' }}
+                  />
+                </Divider>
+
+                {/* 添削内容 (Markdown) */}
+                <Box sx={{ mb: 4 }}>
+                  <SafeMarkdown content={result.correction} />
+                </Box>
+
+                {/* 総評コメント */}
+                <Paper 
+                  elevation={0} 
+                  sx={{ 
+                    p: 3, 
+                    bgcolor: result.score >= 8 ? 'success.50' : 'grey.50', 
+                    borderRadius: 3,
+                    border: '1px solid',
+                    borderColor: result.score >= 8 ? 'success.200' : 'grey.200'
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight="bold" color="text.secondary" gutterBottom>
+                    📝 AI講師からの総評
+                  </Typography>
+                  <Typography variant="body1" fontWeight="500" color="text.primary">
+                    {result.overall_comment}
+                  </Typography>
+                </Paper>
+
+                {/* 完了ボタン */}
+                <Button
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  onClick={handleFinishConfirm}
+                  sx={{ 
+                    mt: 4, py: 2, borderRadius: 3, fontWeight: 'bold',
+                    boxShadow: 3
+                  }}
+                >
+                  学習結果を保存して終了
+                </Button>
               </Box>
-
-              <Divider sx={{ my: 3 }} >
-                <Chip icon={<AutoFixIcon />} label={result.score === 0 ? "Model Answer" : "AI Correction"} color="secondary" variant="outlined" />
-              </Divider>
-
-              {/* 解説・添削内容 */}
-              <Paper elevation={0} sx={{ bgcolor: '#fff', p: 0 }}>
-                <SafeMarkdown content={result.correction} />
-              </Paper>
-
-              {/* 総評 */}
-              <Alert severity={result.score >= 8 ? "success" : "info"} sx={{ mt: 4, borderRadius: 2 }}>
-                <AlertTitle sx={{fontWeight:'bold'}}>総評・アドバイス</AlertTitle>
-                {result.overall_comment}
-              </Alert>
-
-              {/* 完了ボタン（ここを押すとLessonScreenの結果画面へ遷移） */}
-              <Button
-                variant="outlined"
-                fullWidth
-                size="large"
-                onClick={handleFinish}
-                sx={{ mt: 4, py: 1.5, borderRadius: 3, fontWeight: 'bold' }}
-              >
-                学習を終了する
-              </Button>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      </Fade>
     </Box>
   );
 };

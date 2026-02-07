@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { 
-  Modal, Box, Typography, TextField, Button, IconButton, 
-  Divider, Stack, ToggleButton, ToggleButtonGroup, CircularProgress 
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  Box, Typography, TextField, Button, IconButton, 
+  Divider, Stack, ToggleButton, ToggleButtonGroup, 
+  CircularProgress, InputAdornment, Tooltip, Zoom,
+  Paper
 } from '@mui/material';
 import { 
   Close as CloseIcon, 
@@ -10,7 +13,9 @@ import {
   Bolt as ProductionIcon, 
   Science as TestIcon, 
   ContentCopy as CopyIcon, 
-  Check as CheckIcon 
+  CheckCircle as CheckIcon,
+  Key as KeyIcon,
+  Badge as BadgeIcon
 } from '@mui/icons-material';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -32,7 +37,6 @@ const SettingsModal = ({
     if (!newMode || newMode === appMode || !uid) return;
     setLoading(true);
     try {
-      // settings/ai_config サブコレクションに保存
       await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid, 'settings', 'ai_config'), {
         appMode: newMode,
         updatedAt: new Date().toISOString()
@@ -49,8 +53,8 @@ const SettingsModal = ({
   const handleSave = () => {
     localStorage.setItem('gemini_api_key', localKey);
     localStorage.setItem('gemini_api_key_admin', localAdminKey);
-    setApiKey(localKey);
-    setAdminApiKey(localAdminKey);
+    if (setApiKey) setApiKey(localKey);
+    if (setAdminApiKey) setAdminApiKey(localAdminKey);
     onClose();
   };
 
@@ -63,107 +67,161 @@ const SettingsModal = ({
   };
 
   return (
-    <Modal open={true} onClose={onClose}>
-      <Box sx={{
-        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: '90%', maxWidth: 450, bgcolor: 'background.paper', borderRadius: 4, boxShadow: 24, p: 4, outline: 'none',
-        maxHeight: '90vh', overflowY: 'auto'
-      }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <SettingsIcon color="primary" />
-            <Typography variant="h6" fontWeight="bold">アプリ設定</Typography>
-          </Stack>
-          <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
+    <Dialog 
+      open={true} 
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        elevation: 0,
+        sx: { 
+          borderRadius: 4, 
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' 
+        }
+      }}
+      TransitionComponent={Zoom}
+    >
+      {/* ヘッダー */}
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Box sx={{ p: 1, bgcolor: 'primary.50', borderRadius: 2, color: 'primary.main', display: 'flex' }}>
+            <SettingsIcon />
+          </Box>
+          <Typography variant="h6" fontWeight="800" color="text.primary">
+            アプリ設定
+          </Typography>
         </Stack>
+        <IconButton onClick={onClose} size="small" sx={{ color: 'text.secondary' }}>
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
 
-        <Stack spacing={3}>
-          {/* AIモード設定セクション */}
+      <Divider />
+
+      <DialogContent sx={{ py: 3 }}>
+        <Stack spacing={4}>
+          
+          {/* 1. AIモード設定 */}
           <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              AI動作モード（あなた専用）
+            <Typography variant="subtitle2" fontWeight="bold" color="text.primary" gutterBottom>
+              AI動作モード
             </Typography>
+            <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+              学習コンテンツの生成アルゴリズムを選択します。
+            </Typography>
+            
             <ToggleButtonGroup
               value={appMode}
               exclusive
               onChange={handleModeChange}
               disabled={loading}
               fullWidth
-              size="small"
-              color="primary"
-              sx={{ '& .MuiToggleButton-root': { borderRadius: 2, fontWeight: 'bold' } }}
+              size="medium"
+              sx={{ 
+                gap: 2,
+                '& .MuiToggleButtonGroup-grouped': {
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: '12px !important',
+                  mx: 0,
+                  textTransform: 'none',
+                  fontWeight: 'bold',
+                  py: 1.5,
+                  '&.Mui-selected': {
+                    bgcolor: 'primary.50',
+                    color: 'primary.main',
+                    borderColor: 'primary.main',
+                    '&:hover': { bgcolor: 'primary.100' }
+                  }
+                }
+              }}
             >
-              <ToggleButton value="production" sx={{ gap: 1 }}>
-                {loading ? <CircularProgress size={16} /> : <ProductionIcon fontSize="small" />}
+              <ToggleButton value="production">
+                {loading ? <CircularProgress size={20} color="inherit" /> : <ProductionIcon sx={{ mr: 1 }} />}
                 本番モード
               </ToggleButton>
-              <ToggleButton value="test" sx={{ gap: 1 }}>
-                {loading ? <CircularProgress size={16} /> : <TestIcon fontSize="small" />}
+              <ToggleButton value="test">
+                {loading ? <CircularProgress size={20} color="inherit" /> : <TestIcon sx={{ mr: 1 }} />}
                 テストモード
               </ToggleButton>
             </ToggleButtonGroup>
-            <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block', fontSize: '0.7rem' }}>
-              ※ テストモードではプロンプトの調整や実験的な機能が有効になります。
-            </Typography>
           </Box>
 
-          <Divider />
-
-          {/* APIキー設定 */}
+          {/* 2. APIキー設定 */}
           <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              Gemini API Key
+            <Typography variant="subtitle2" fontWeight="bold" color="text.primary" gutterBottom>
+              API Key Configuration
             </Typography>
-            <TextField
-              fullWidth type="password" variant="outlined" size="small"
-              value={localKey} onChange={(e) => setLocalKey(e.target.value)}
-              placeholder="AI学習に使用するキーを入力"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-            />
+            <Stack spacing={2}>
+              <TextField
+                fullWidth
+                type="password"
+                variant="outlined"
+                label="Gemini API Key"
+                value={localKey}
+                onChange={(e) => setLocalKey(e.target.value)}
+                placeholder="AI学習に使用するキーを入力"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <KeyIcon color="action" fontSize="small" />
+                    </InputAdornment>
+                  ),
+                  sx: { borderRadius: 3 }
+                }}
+              />
+              
+              {isAdminMode && (
+                <TextField
+                  fullWidth
+                  type="password"
+                  variant="outlined"
+                  label="Admin API Key (Optional)"
+                  value={localAdminKey}
+                  onChange={(e) => setLocalAdminKey(e.target.value)}
+                  placeholder="管理者機能用キー"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <AdminIcon color="action" fontSize="small" />
+                      </InputAdornment>
+                    ),
+                    sx: { borderRadius: 3 }
+                  }}
+                />
+              )}
+            </Stack>
           </Box>
 
-          <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              Admin API Key (任意)
-            </Typography>
-            <TextField
-              fullWidth type="password" variant="outlined" size="small"
-              value={localAdminKey} onChange={(e) => setLocalAdminKey(e.target.value)}
-              placeholder="管理者機能用キー"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-            />
-          </Box>
-
-          <Divider />
-
-          {/* ユーザー情報 */}
-          <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight="bold" gutterBottom display="block">
-              User ID (サポート用)
-            </Typography>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Box sx={{ 
-                bgcolor: '#f1f5f9', px: 2, py: 1.5, borderRadius: 2, 
-                flexGrow: 1, border: '1px solid #e2e8f0', overflow: 'hidden' 
-              }}>
-                <Typography variant="caption" sx={{ color: '#475569', wordBreak: 'break-all', display: 'block', fontFamily: 'monospace' }}>
+          {/* 3. ユーザー情報 */}
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: 'grey.50', borderColor: 'grey.200' }}>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <BadgeIcon color="disabled" />
+              <Box flexGrow={1} overflow="hidden">
+                <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block">
+                  User ID (Support)
+                </Typography>
+                <Typography variant="body2" fontFamily="monospace" color="text.primary" noWrap>
                   {uid || 'Loading...'}
                 </Typography>
               </Box>
-              <IconButton 
-                onClick={handleCopyUid} 
-                sx={{ 
-                  bgcolor: isCopied ? '#ecfdf5' : '#f8fafc', 
-                  color: isCopied ? '#10b981' : '#64748b',
-                  border: '1px solid',
-                  borderColor: isCopied ? '#a7f3d0' : '#e2e8f0',
-                  borderRadius: 2
-                }}
-              >
-                {isCopied ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
-              </IconButton>
+              <Tooltip title={isCopied ? "コピーしました！" : "IDをコピー"}>
+                <IconButton 
+                  onClick={handleCopyUid}
+                  sx={{ 
+                    bgcolor: isCopied ? 'success.light' : 'white', 
+                    color: isCopied ? 'success.contrastText' : 'text.secondary',
+                    border: '1px solid',
+                    borderColor: isCopied ? 'success.main' : 'grey.300',
+                    transition: 'all 0.2s',
+                    '&:hover': { bgcolor: isCopied ? 'success.main' : 'grey.100' }
+                  }}
+                >
+                  {isCopied ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
             </Stack>
-          </Box>
+          </Paper>
 
           {/* 管理者ダッシュボードへの導線 */}
           {isAdminMode && (
@@ -172,24 +230,43 @@ const SettingsModal = ({
               color="secondary"
               startIcon={<AdminIcon />}
               onClick={onAdmin}
-              sx={{ borderRadius: 2, fontWeight: 'bold', borderStyle: 'dashed', py: 1 }}
+              sx={{ 
+                borderRadius: 3, 
+                fontWeight: 'bold', 
+                borderStyle: 'dashed', 
+                borderWidth: 2,
+                py: 1.5,
+                '&:hover': { borderStyle: 'dashed', borderWidth: 2, bgcolor: 'secondary.50' }
+              }}
             >
-              管理者ダッシュボード
+              管理者ダッシュボードを開く
             </Button>
           )}
 
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleSave}
-            size="large"
-            sx={{ py: 1.5, borderRadius: 3, fontWeight: 'bold', boxShadow: 2 }}
-          >
-            設定を保存して閉じる
-          </Button>
         </Stack>
-      </Box>
-    </Modal>
+      </DialogContent>
+
+      <DialogActions sx={{ p: 3, pt: 1 }}>
+        <Button onClick={onClose} variant="text" color="inherit" sx={{ borderRadius: 2, fontWeight: 'bold', mr: 1 }}>
+          キャンセル
+        </Button>
+        <Button
+          onClick={handleSave}
+          variant="contained"
+          size="large"
+          disableElevation
+          sx={{ 
+            px: 4, 
+            borderRadius: 3, 
+            fontWeight: 'bold',
+            bgcolor: 'primary.main',
+            '&:hover': { bgcolor: 'primary.dark' }
+          }}
+        >
+          保存する
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 };
 

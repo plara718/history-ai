@@ -1,58 +1,98 @@
 import React from 'react';
-import { Box, Button, Typography, Paper, Container, Stack, Chip, Alert, Divider } from '@mui/material';
-import { CheckCircle, Warning as AlertTriangle, ChevronRight, ArrowForward as ArrowRight, Check, Close as X } from '@mui/icons-material';
-import { SafeMarkdown } from '../components/SafeMarkdown'; // MarkdownLiteの代わりにSafeMarkdownを使用
+import { 
+  Box, Button, Typography, Paper, Container, Stack, Chip, Alert, Divider, 
+  Grid, Fade
+} from '@mui/material';
+import { 
+  CheckCircle, 
+  Cancel,
+  Warning as AlertTriangle, 
+  ChevronRight, 
+  ArrowForward as ArrowRight, 
+  Check as CheckIcon,
+  Close as CloseIcon
+} from '@mui/icons-material';
+import { SafeMarkdown } from '../components/SafeMarkdown';
 
 const ReviewScreen = ({ 
-  qIndex, reviewProblems, isAnswered, reviewResult, 
-  reviewUserAnswer, setReviewUserAnswer, 
-  handleReviewAnswer, nextReviewQuestion 
+  qIndex, 
+  reviewProblems, 
+  isAnswered, 
+  reviewResult, 
+  reviewUserAnswer, 
+  setReviewUserAnswer, 
+  handleReviewAnswer, 
+  nextReviewQuestion 
 }) => {
+  // ガード: データがない場合
   if (!reviewProblems || !reviewProblems[qIndex]) return null;
 
   const currentQ = reviewProblems[qIndex];
   const totalQ = reviewProblems.length;
   
-  // 新データ構造への対応
+  // 問題タイプ判定
   const isSort = currentQ.type === 'sort';
-  const isTF = currentQ.type === 'tf' || currentQ.type === 'true_false'; // 互換性のため両方チェック
+  const isTF = currentQ.type === 'tf' || currentQ.type === 'true_false' || !isSort; // デフォルトはTF
   
-  // 整序問題用
+  // 整序問題用アイテム
   const items = currentQ.items || [];
   
-  // 解説テキストの取得
-  const explanation = currentQ.exp || currentQ.explanation || "解説がありません。";
+  // 解説テキスト
+  const explanation = currentQ.exp || currentQ.explanation || "解説データがありません。";
 
-  // 整序問題の操作ロジック
+  // --- ハンドラー ---
+
+  // 整序問題: 選択肢トグル
   const handleSortToggle = (itemIndex) => {
     if (isAnswered) return;
+    
     const currentOrder = Array.isArray(reviewUserAnswer) ? reviewUserAnswer : [];
     let newOrder;
+    
     if (currentOrder.includes(itemIndex)) {
-        newOrder = currentOrder.filter(i => i !== itemIndex);
+      // 選択解除
+      newOrder = currentOrder.filter(i => i !== itemIndex);
     } else {
-        newOrder = [...currentOrder, itemIndex];
+      // 選択追加
+      newOrder = [...currentOrder, itemIndex];
     }
     setReviewUserAnswer(newOrder);
   };
 
+  // 正誤問題: 回答送信
+  const handleTFSubmit = (selectedBool) => {
+    if (isAnswered) return;
+    // 親コンポーネントへ通知 (true/false)
+    handleReviewAnswer(selectedBool);
+  };
+
   return (
-    <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 10 }}>
-       <Box mb={3} textAlign="center">
-          <Typography variant="caption" fontWeight="bold" color="text.secondary">
-              弱点克服モード {qIndex + 1} / {totalQ}
+    <Container maxWidth="sm" sx={{ pb: 10, pt: 2 }}>
+       <Box mb={4} textAlign="center">
+          <Typography variant="overline" fontWeight="bold" color="text.secondary" letterSpacing={1.5}>
+              WEAKNESS DRILL {qIndex + 1} / {totalQ}
           </Typography>
-          <Typography variant="subtitle2" fontWeight="bold" color="primary">
-              {currentQ.theme || "復習"}
+          <Typography variant="h6" fontWeight="900" color="primary" sx={{ mt: 0.5 }}>
+              {currentQ.theme || "復習チャレンジ"}
           </Typography>
       </Box>
 
-      <Paper elevation={0} sx={{ p: 4, borderRadius: 4, bgcolor: 'white', border: '1px solid', borderColor: 'divider', mb: 3 }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          p: { xs: 3, sm: 4 }, 
+          borderRadius: 4, 
+          bgcolor: 'white', 
+          border: '1px solid', 
+          borderColor: 'divider', 
+          mb: 4 
+        }}
+      >
           <Chip 
-              label={isSort ? '整序問題' : '正誤判定'} 
+              label={isSort ? '歴史整序' : '正誤判定'} 
               size="small" 
-              color="warning"
-              sx={{ fontWeight: 'bold', mb: 2 }} 
+              color={isSort ? "secondary" : "warning"}
+              sx={{ fontWeight: 'bold', mb: 2, borderRadius: 1.5 }} 
           />
           <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.6 }}>
               {currentQ.q}
@@ -62,121 +102,151 @@ const ReviewScreen = ({
       <Box mb={4}>
           {isTF ? (
               // --- 正誤問題 (True/False) ---
-              <Stack direction="row" spacing={2}>
-                  {[true, false].map((val, i) => {
-                      // 0=True, 1=False と仮定 (QuizSection準拠)
-                      // ただし reviewUserAnswer が boolean で来る場合と 0/1 で来る場合を吸収
-                      const optionValue = i === 0; // true or false
-                      const isSelected = reviewUserAnswer === optionValue;
-                      
-                      // 正解判定ロジック (currentQ.correct は 0=True, 1=False)
-                      const isCorrectOption = (i === 0 && currentQ.correct === 0) || (i === 1 && currentQ.correct === 1);
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  {/* True Button */}
+                  <Button
+                      fullWidth
+                      variant={isAnswered && reviewUserAnswer === true ? "contained" : "outlined"}
+                      color={isAnswered ? (currentQ.correct === 0 ? "success" : "error") : "primary"}
+                      onClick={() => handleTFSubmit(true)}
+                      disabled={isAnswered}
+                      startIcon={isAnswered && currentQ.correct === 0 ? <CheckIcon /> : null}
+                      sx={{ 
+                          py: 2, borderRadius: 3, 
+                          fontSize: '1.1rem', fontWeight: 'bold',
+                          borderWidth: isAnswered ? 0 : 2,
+                          '&:hover': { borderWidth: 2 }
+                      }}
+                  >
+                       ⭕ 正しい
+                  </Button>
 
-                      let bg = 'white';
-                      let borderColor = '#e2e8f0'; // slate-200
-                      
-                      if (isAnswered) {
-                          if (isCorrectOption) { bg = '#ecfdf5'; borderColor = '#10b981'; } // emerald
-                          else if (isSelected) { bg = '#fff1f2'; borderColor = '#f43f5e'; } // rose
-                      }
-
-                      return (
-                          <Button
-                              key={i}
-                              fullWidth
-                              variant="outlined"
-                              onClick={() => !isAnswered && handleReviewAnswer(optionValue)}
-                              sx={{ 
-                                  py: 4, borderRadius: 3, border: '2px solid', 
-                                  fontSize: '1.2rem', fontWeight: 'bold',
-                                  bgcolor: isAnswered ? undefined : bg,
-                                  borderColor: isAnswered ? undefined : borderColor,
-                                  color: isAnswered && isCorrectOption ? '#047857' : isAnswered && isSelected ? '#be123c' : 'inherit',
-                                  '&:hover': { borderWidth: '2px' }
-                              }}
-                          >
-                               {val ? "⭕ 正しい" : "❌ 誤り"}
-                          </Button>
-                      );
-                  })}
+                  {/* False Button */}
+                  <Button
+                      fullWidth
+                      variant={isAnswered && reviewUserAnswer === false ? "contained" : "outlined"}
+                      color={isAnswered ? (currentQ.correct === 1 ? "success" : "error") : "error"}
+                      onClick={() => handleTFSubmit(false)}
+                      disabled={isAnswered}
+                      startIcon={isAnswered && currentQ.correct === 1 ? <CheckIcon /> : null}
+                      sx={{ 
+                          py: 2, borderRadius: 3, 
+                          fontSize: '1.1rem', fontWeight: 'bold',
+                          borderWidth: isAnswered ? 0 : 2,
+                          borderColor: isAnswered ? undefined : 'error.main',
+                          color: isAnswered ? undefined : 'error.main',
+                          '&:hover': { borderWidth: 2, bgcolor: 'error.50' }
+                      }}
+                  >
+                       ❌ 誤り
+                  </Button>
               </Stack>
           ) : (
               // --- 整序問題 (Sort) ---
               <Box>
-                  <Box mb={2} p={2} bgcolor="#f1f5f9" borderRadius={2} minHeight={60} display="flex" flexWrap="wrap" gap={1} alignItems="center">
+                  {/* 選択エリア (Selected Items) */}
+                  <Box 
+                    mb={3} p={2} 
+                    bgcolor="grey.50" borderRadius={3} 
+                    border="1px dashed" borderColor="grey.300"
+                    minHeight={80} 
+                    display="flex" flexWrap="wrap" gap={1} alignItems="center"
+                  >
                       {(!reviewUserAnswer || reviewUserAnswer.length === 0) && (
-                          <Typography variant="caption" color="text.disabled">下の選択肢を順番にタップしてください</Typography>
+                          <Typography variant="body2" color="text.disabled" width="100%" textAlign="center">
+                            下の選択肢を順番にタップしてください
+                          </Typography>
                       )}
-                      {(reviewUserAnswer || []).map((idx, i) => (
-                          <React.Fragment key={i}>
-                              {i > 0 && <ArrowRight fontSize="small" sx={{ color: '#94a3b8' }} />}
+                      
+                      {(reviewUserAnswer || []).map((itemIndex, i) => (
+                          <Box key={i} display="flex" alignItems="center">
+                              {i > 0 && <ArrowRight fontSize="small" sx={{ color: 'text.disabled', mx: 0.5 }} />}
                               <Chip 
-                                label={`${String.fromCharCode(65 + idx)}. ${items[idx]}`}
-                                onDelete={!isAnswered ? () => handleSortToggle(idx) : undefined}
+                                label={`${String.fromCharCode(65 + itemIndex)}. ${items[itemIndex]}`}
+                                onDelete={!isAnswered ? () => handleSortToggle(itemIndex) : undefined}
                                 color="primary" 
-                                variant={isAnswered ? "filled" : "outlined"}
-                                sx={{ bgcolor: 'white' }}
+                                variant="filled"
+                                sx={{ fontWeight: 'bold' }}
                               />
-                          </React.Fragment>
+                          </Box>
                       ))}
                   </Box>
 
-                  <Stack direction="row" flexWrap="wrap" gap={1} justifyContent="center" mb={2}>
-                      {items.map((item, i) => (
-                          <Chip 
-                              key={i} 
-                              label={`${String.fromCharCode(65 + i)}. ${item}`}
-                              onClick={() => handleSortToggle(i)} 
-                              disabled={isAnswered || (reviewUserAnswer || []).includes(i)}
-                              variant="outlined" 
-                              sx={{ py: 2, fontWeight: 'bold' }}
-                          />
-                      ))}
-                  </Stack>
+                  {/* 候補エリア (Candidates) */}
+                  <Grid container spacing={1} justifyContent="center" mb={4}>
+                      {items.map((item, i) => {
+                          const isSelected = (reviewUserAnswer || []).includes(i);
+                          return (
+                            <Grid item xs={12} sm={6} key={i}>
+                                <Button
+                                    fullWidth
+                                    variant={isSelected ? "contained" : "outlined"}
+                                    color={isSelected ? "grey" : "primary"}
+                                    onClick={() => handleSortToggle(i)} 
+                                    disabled={isAnswered || isSelected}
+                                    sx={{ 
+                                      justifyContent: 'flex-start',
+                                      py: 1.5, px: 2, borderRadius: 2, 
+                                      fontWeight: 'bold', textTransform: 'none',
+                                      bgcolor: isSelected ? 'action.disabledBackground' : 'white'
+                                    }}
+                                >
+                                    <Typography variant="caption" sx={{ mr: 1, fontWeight: 'bold', minWidth: 20 }}>
+                                      {String.fromCharCode(65 + i)}.
+                                    </Typography>
+                                    <Typography variant="body2" noWrap>
+                                      {item}
+                                    </Typography>
+                                </Button>
+                            </Grid>
+                          );
+                      })}
+                  </Grid>
+
                   {!isAnswered && (
                       <Button 
                           variant="contained" 
                           fullWidth 
+                          size="large"
                           onClick={() => handleReviewAnswer(reviewUserAnswer)}
                           disabled={!reviewUserAnswer || reviewUserAnswer.length !== items.length}
-                          sx={{ py: 1.5, borderRadius: 2, fontWeight: 'bold' }}
+                          sx={{ py: 1.5, borderRadius: 3, fontWeight: 'bold', boxShadow: 2 }}
                       >
-                          回答決定
+                          回答を決定する
                       </Button>
                   )}
               </Box>
           )}
       </Box>
 
+      {/* --- 結果表示エリア --- */}
       {isAnswered && (
-          <div className="animate-fadeIn">
+          <Fade in={true}>
+            <Box>
               <Alert 
                   severity={reviewResult ? "success" : "error"} 
-                  icon={reviewResult ? <CheckCircle fontSize="inherit" /> : <AlertTriangle fontSize="inherit" />}
-                  sx={{ mb: 2, borderRadius: 3, fontWeight: 'bold' }}
+                  icon={reviewResult ? <CheckCircle fontSize="inherit" /> : <Cancel fontSize="inherit" />}
+                  sx={{ mb: 3, borderRadius: 3, fontWeight: 'bold', fontSize: '1rem', py: 1.5 }}
               >
-                  {reviewResult ? "正解！" : "不正解..."}
+                  {reviewResult ? "正解！素晴らしい理解力です。" : "不正解... 解説を確認しましょう。"}
               </Alert>
 
-              <Paper elevation={0} sx={{ p: 3, borderRadius: 3, bgcolor: '#f8fafc', border: '1px solid', borderColor: '#e2e8f0', mb: 3 }}>
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="text.secondary">
-                      解説・ポイント
-                  </Typography>
-
+              <Paper elevation={0} sx={{ p: 3, borderRadius: 3, bgcolor: '#f8fafc', border: '1px solid', borderColor: '#e2e8f0', mb: 4 }}>
+                  
                   {/* 整序問題の正解表示 */}
-                  {isSort && currentQ.correct_order && (
-                      <Box mb={3} p={2} bgcolor="white" borderRadius={2} border="1px dashed" borderColor="#cbd5e1">
-                           <Typography variant="caption" display="block" color="text.secondary" mb={1}>
+                  {isSort && !reviewResult && currentQ.correct_order && (
+                      <Box mb={3} p={2} bgcolor="white" borderRadius={2} border="1px solid" borderColor="success.light">
+                           <Typography variant="caption" display="block" color="success.main" fontWeight="bold" mb={1}>
                                 正しい順序:
                            </Typography>
                            <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
                                {currentQ.correct_order.map((idx, i) => (
                                    <React.Fragment key={i}>
-                                       {i > 0 && <ArrowRight fontSize="small" sx={{ color: '#10b981' }} />}
+                                       {i > 0 && <ArrowRight fontSize="small" sx={{ color: 'success.main' }} />}
                                        <Chip 
                                            size="small"
                                            label={`${String.fromCharCode(65 + idx)}. ${items[idx]}`}
-                                           sx={{ fontWeight: 'bold', bgcolor: '#ecfdf5', color: '#065f46', border: '1px solid', borderColor: '#a7f3d0' }}
+                                           sx={{ fontWeight: 'bold', bgcolor: 'success.50', color: 'success.dark', border: '1px solid', borderColor: 'success.200' }}
                                        />
                                    </React.Fragment>
                                ))}
@@ -184,9 +254,12 @@ const ReviewScreen = ({
                       </Box>
                   )}
                   
+                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="text.secondary" sx={{ display: 'flex', alignItems: 'center' }}>
+                      💡 解説・ポイント
+                  </Typography>
                   <Divider sx={{ mb: 2 }} />
 
-                  <Box sx={{ color: '#475569', lineHeight: 1.8 }}>
+                  <Box sx={{ color: '#334155', lineHeight: 1.8 }}>
                       <SafeMarkdown content={explanation} />
                   </Box>
               </Paper>
@@ -196,12 +269,17 @@ const ReviewScreen = ({
                   fullWidth 
                   size="large" 
                   onClick={nextReviewQuestion}
-                  sx={{ py: 2, borderRadius: 3, fontWeight: 'bold' }}
+                  sx={{ 
+                    py: 2, borderRadius: 3, fontWeight: 'bold',
+                    boxShadow: 3,
+                    background: 'linear-gradient(to right, #2563eb, #3b82f6)'
+                  }}
                   endIcon={<ChevronRight />}
               >
-                  次へ
+                  {qIndex < totalQ - 1 ? "次の問題へ" : "結果を見る"}
               </Button>
-          </div>
+            </Box>
+          </Fade>
       )}
     </Container>
   );

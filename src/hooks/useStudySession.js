@@ -1,21 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { doc, getDoc, setDoc, increment } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { APP_ID, MAX_DAILY_SESSIONS } from '../lib/constants';
 import { getTodayString } from '../lib/utils';
 
+/**
+ * 学習セッションの状態管理フック
+ * 日次プログレスの取得、完了更新、セッション切り替えを担当
+ */
 export const useStudySession = (userId) => {
-  const [activeSession, setActiveSession] = useState(1);  // 次にやるべきセッション番号
-  const [viewingSession, setViewingSession] = useState(1); // 画面で選択中のセッション番号
-  const [historyMeta, setHistoryMeta] = useState({});     // 各セッションの完了状態 { 1: {exists: true, completed: false}, ... }
+  const [activeSession, setActiveSession] = useState(1);  // 次に取り組むべきセッション (1-3)
+  const [viewingSession, setViewingSession] = useState(1); // UIで表示中のセッション (1-3)
+  const [historyMeta, setHistoryMeta] = useState({});     // { 1: {exists, completed}, ... }
   const [heatmapStats, setHeatmapStats] = useState({});   // ヒートマップ用データ
 
   // 初期化：その日の学習状況（メタデータ）を取得
-  const loadHistoryMeta = async () => {
+  const loadHistoryMeta = useCallback(async () => {
     if (!userId) return;
     try {
-      // 1. ヒートマップ取得
-      const hmSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'));
+      // 1. ヒートマップ取得 (統計データのロード)
+      const hmRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap');
+      const hmSnap = await getDoc(hmRef);
       if (hmSnap.exists()) {
           setHeatmapStats(hmSnap.data().data || {});
       }
@@ -26,82 +31,116 @@ export const useStudySession = (userId) => {
       for (let i = 1; i <= MAX_DAILY_SESSIONS; i++) {
         promises.push(getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${i}`)));
       }
+      
       const snaps = await Promise.all(promises);
       
       const meta = {};
-      let next = 1;
-      let limitReached = false;
-      
-      snaps.forEach((s, i) => {
-        const n = i + 1;
+      let nextSession = 1;
+      let isAllCompleted = true; // 全て完了しているか？
+
+      snaps.forEach((s, index) => {
+        const sessionNum = index + 1;
+        
         if (s.exists()) {
           const d = s.data();
-          // 既存データがある場合、完了しているかチェック
-          meta[n] = { exists: true, completed: d.completed, theme: d.content?.theme };
+          const isCompleted = !!d.completed;
           
-          if (d.completed) {
-            // 完了していれば、次は n+1 になる可能性がある
-            next = n + 1;
-          } else {
-            // 存在していても未完了なら、次やるのはここ (next = n)
-            next = n;
+          meta[sessionNum] = { 
+            exists: true, 
+            completed: isCompleted, 
+            theme: d.theme || d.content?.theme 
+          };
+
+          if (!isCompleted) {
+            isAllCompleted = false;
+            // 未完了の中で一番若い番号を nextSession にする
+            // (既に nextSession が更新されている場合は、より小さい方を優先したいが、
+            //  通常は順番に進むので、ループで見つかった最初の未完了をセットすればよい)
+            if (nextSession > sessionNum) nextSession = sessionNum; 
           }
         } else {
-          // データがない場合
-          meta[n] = { exists: false, completed: false };
+          // データなし
+          meta[sessionNum] = { exists: false, completed: false };
+          isAllCompleted = false;
         }
       });
 
-      if (next > MAX_DAILY_SESSIONS) {
-        next = MAX_DAILY_SESSIONS;
-        limitReached = true;
+      // 次にやるべきセッションの決定ロジック
+      // 1から順に見て、最初に「完了していない」セッションを探す
+      for (let i = 1; i <= MAX_DAILY_SESSIONS; i++) {
+        if (!meta[i]?.completed) {
+          nextSession = i;
+          break;
+        }
+        // ループが最後まで行ったら nextSession は MAX + 1 になるイメージだが、
+        // ここでは MAX で止めるか、完了済み状態として扱う
+        if (i === MAX_DAILY_SESSIONS) nextSession = MAX_DAILY_SESSIONS; 
       }
-      
-      setHistoryMeta(meta);
-      
-      // 次に取り組むべきセッションをセット
-      // (ただし、ユーザーが手動で過去のセッションを選択している場合は上書きしない制御もUI側で可能)
-      setActiveSession(next);
-      setViewingSession(limitReached ? MAX_DAILY_SESSIONS : next);
-      
-      return { next, limitReached };
-    } catch (e) { console.error("History load error", e); }
-  };
 
-  // セッション完了時の処理 (LessonScreenから呼ばれる想定)
+      setHistoryMeta(meta);
+      setActiveSession(nextSession);
+      
+      // 表示セッションの初期値: 
+      // 基本は nextSession だが、もし全て完了していれば最後のセッションを見せる
+      setViewingSession(nextSession);
+      
+      return { nextSession, isAllCompleted };
+
+    } catch (e) { 
+      console.error("History load error", e); 
+      return { nextSession: 1, isAllCompleted: false };
+    }
+  }, [userId]);
+
+  // セッション完了時の処理 (LessonScreenから呼ばれる)
   const markAsCompleted = async (sessionNum) => {
       if (!userId) return;
       const today = getTodayString();
       
-      // 1. 完了フラグを立てる
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`), 
-        { completed: true }, { merge: true });
-      
-      // 2. ヒートマップ更新
-      // (重複カウントを防ぐため、既に完了済みならインクリメントしない等の制御も可能だが、
-      // ここでは簡易的に「完了マークを打つたびに学習した」とみなして加算する)
-      await setDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap'), 
-        { data: { [today]: increment(1) } }, { merge: true });
-      
-      // 3. ローカルstate更新
-      setHistoryMeta(prev => ({ 
-        ...prev, 
-        [sessionNum]: { ...prev[sessionNum], completed: true } 
-      }));
-      setHeatmapStats(prev => ({ ...prev, [today]: (prev[today] || 0) + 1 }));
+      try {
+        // 1. セッションデータの完了フラグを更新
+        const sessionRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+        await setDoc(sessionRef, { completed: true }, { merge: true });
+        
+        // 2. ヒートマップ（学習日数/回数）の更新
+        // ドット記法を使って、特定の日付キーだけをインクリメントする
+        // ネストされたフィールド "data.2023-10-01" を更新
+        const statsRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap');
+        await setDoc(statsRef, {
+            [`data.${today}`]: increment(1)
+        }, { merge: true });
+        
+        // 3. ローカルstate更新 (再取得せず即時反映)
+        setHistoryMeta(prev => ({ 
+          ...prev, 
+          [sessionNum]: { ...prev[sessionNum], completed: true } 
+        }));
+        
+        // ヒートマップ表示用も更新
+        setHeatmapStats(prev => ({ 
+          ...prev, 
+          [today]: (prev[today] || 0) + 1 
+        }));
+
+        // 次のセッションへ進めるなら進める
+        if (sessionNum < MAX_DAILY_SESSIONS) {
+          setActiveSession(sessionNum + 1);
+        }
+
+      } catch (e) {
+        console.error("Completion update error:", e);
+      }
   };
 
   // セッション切り替え (StartScreenのタブ選択などで使用)
   const switchSession = (n) => {
       setViewingSession(n);
-      // 必要であればここでそのセッションのデータをロードする処理を入れても良いが、
-      // データロードは LessonScreen 側で行う設計にしたため、ここでは番号管理のみ。
   };
 
   // 初回マウント時にロード
   useEffect(() => { 
     if (userId) loadHistoryMeta(); 
-  }, [userId]);
+  }, [userId, loadHistoryMeta]);
 
   return {
     activeSession,     // 次に学習すべきセッション番号 (例: 2)

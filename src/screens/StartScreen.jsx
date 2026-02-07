@@ -1,7 +1,15 @@
-import React from 'react';
-import { Box, Button, Typography, Container, Stack, Paper, Chip, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
-import { Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Box, Button, Typography, Container, Stack, Paper, Chip, 
+  ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem,
+  Card, CardContent, Skeleton, Fade
+} from '@mui/material';
+import { 
+  Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle,
+  Activity // HealthAndSafety の代わり (lucide-reactのバージョン差異対策)
+} from 'lucide-react';
 import { TEXTBOOK_UNITS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants';
+import { getReviewStrategy } from '../lib/reviewStrategy';
 
 const StartScreen = ({ 
   activeSession, viewingSession, isDailyLimitReached,
@@ -10,50 +18,151 @@ const StartScreen = ({
   difficulty, setDifficulty,
   
   // App.jsx から渡されるハンドラ
-  generateDailyLesson, // 「学習をはじめる」ボタン用 (実態は handleStartLesson)
-  onResume,            // 「再開する」ボタン用 (実態は handleStartLesson または step変更)
+  onStartLesson,       // 通常学習開始 (generateDailyLesson)
+  onResumeLesson,      // 再開 (onResume)
+  onStartReview,       // 復習開始 (startWeaknessReview)
   
-  startWeaknessReview,
   isProcessing, historyMeta, onSwitchSession,
   onRegenerate, regenCount,
   onLogout, userId, openSettings 
 }) => {
   
   const isSchool = learningMode === 'school';
-  const themeColor = isSchool ? 'emerald' : 'indigo'; 
+  const themeColor = isSchool ? 'success' : 'primary'; // MUIカラー名に修正
   
-  const isViewingCompleted = historyMeta && historyMeta[viewingSession]?.completed;
-  const isViewingExists = historyMeta && historyMeta[viewingSession]?.exists;
+  const currentSessionMeta = historyMeta[viewingSession] || {};
+  const isViewingCompleted = !!currentSessionMeta.completed;
+  const isViewingExists = !!currentSessionMeta.exists;
 
   // 現在選択されている難易度の説明
   const currentDifficultyDesc = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty]?.desc || "設定に合わせてAIが調整します";
 
+  // 復習戦略の状態管理
+  const [reviewStrategy, setReviewStrategy] = useState(null);
+  const [loadingStrategy, setLoadingStrategy] = useState(true);
+
+  // 初回ロード時に復習戦略を取得
+  useEffect(() => {
+    const fetchStrategy = async () => {
+      if (!userId) return;
+      setLoadingStrategy(true);
+      try {
+        const strategy = await getReviewStrategy(userId);
+        setReviewStrategy(strategy);
+      } catch (e) {
+        console.error("Strategy fetch failed", e);
+      } finally {
+        setLoadingStrategy(false);
+      }
+    };
+    fetchStrategy();
+  }, [userId]);
+
+  // 復習ボタンクリック時のハンドラ wrapper
+  const handleReviewStart = () => {
+    if (reviewStrategy && onStartReview) {
+      onStartReview(reviewStrategy);
+    }
+  };
+
   return (
-    <Container maxWidth="sm" className="animate-fadeIn" sx={{ pb: 8 }}>
+    <Container maxWidth="sm" className="animate-fade-in" sx={{ pb: 8, pt: 2 }}>
       
       {/* ユーザー情報ヘッダー */}
       <Box mb={3} display="flex" justifyContent="space-between" alignItems="center">
           <Box>
               <Typography variant="caption" fontWeight="bold" color="text.secondary">ログイン中</Typography>
-              <Typography variant="body2" fontFamily="monospace" fontWeight="bold" color="slate.700">
+              <Typography variant="body2" fontFamily="monospace" fontWeight="bold" color="text.primary">
                   {userId ? (userId.slice(0, 6) + "...") : ""}
               </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
               <Button 
                   size="small" variant="outlined" color="inherit" onClick={openSettings}
-                  startIcon={<Settings size={14}/>} sx={{ minWidth: 0, px: 1.5 }}
+                  startIcon={<Settings size={14}/>} sx={{ minWidth: 0, px: 1.5, borderRadius: 2 }}
               >
                   設定
               </Button>
               <Button 
                   size="small" variant="outlined" color="error" onClick={onLogout}
-                  startIcon={<LogOut size={14}/>} sx={{ minWidth: 0, px: 1.5 }}
+                  startIcon={<LogOut size={14}/>} sx={{ minWidth: 0, px: 1.5, borderRadius: 2 }}
               >
                   ログアウト
               </Button>
           </Stack>
       </Box>
+
+      {/* 復習レコメンドカード (通常学習の未完了時のみ表示) */}
+      {!isViewingExists && !isDailyLimitReached && (
+        <Box sx={{ mb: 4 }}>
+          {loadingStrategy ? (
+            <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 4 }} />
+          ) : reviewStrategy && (
+            <Fade in={true}>
+              <Card 
+                elevation={0}
+                sx={{ 
+                  borderRadius: 4, 
+                  background: 'linear-gradient(135deg, #FFF1F2 0%, #FFE4E6 100%)', // Rose gradient
+                  border: '1px solid #FECDD3',
+                  position: 'relative', overflow: 'visible'
+                }}
+              >
+                {/* Badge */}
+                <Box sx={{
+                  position: 'absolute', top: -10, left: 16,
+                  bgcolor: '#E11D48', color: 'white',
+                  px: 1.5, py: 0.25, borderRadius: 20,
+                  fontSize: '0.7rem', fontWeight: 'bold',
+                  display: 'flex', alignItems: 'center', gap: 0.5,
+                  boxShadow: '0 2px 6px rgba(225, 29, 72, 0.3)'
+                }}>
+                  <Activity size={14} /> WEAKNESS DETECTED
+                </Box>
+
+                <CardContent sx={{ pt: 2.5, pb: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#881337', mb: 0.5, lineHeight: 1.2 }}>
+                    弱点克服トレーニング
+                  </Typography>
+                  <Typography variant="caption" display="block" sx={{ color: '#9F1239', mb: 1.5, fontWeight: 500, lineHeight: 1.4 }}>
+                    {reviewStrategy.reason}
+                  </Typography>
+                  
+                  <Stack direction="row" spacing={1} alignItems="center">
+                     {/* タグ名表示 (IDからラベルへの変換は省略し、簡易表示) */}
+                     <Chip 
+                       label={reviewStrategy.target_era_label || reviewStrategy.target_era} 
+                       size="small" 
+                       sx={{ bgcolor: 'white', color: '#E11D48', fontWeight: 'bold', height: 24, border: '1px solid #FDA4AF' }} 
+                     />
+                     <Chip 
+                       label={reviewStrategy.target_mistake_label || reviewStrategy.target_mistake} 
+                       size="small" 
+                       sx={{ bgcolor: 'white', color: '#E11D48', fontWeight: 'bold', height: 24, border: '1px solid #FDA4AF' }} 
+                     />
+                     
+                     <Box flexGrow={1} />
+                     
+                     <Button 
+                       variant="contained" 
+                       size="small"
+                       onClick={handleReviewStart}
+                       disabled={isProcessing}
+                       sx={{ 
+                         bgcolor: '#E11D48', color: 'white', fontWeight: 'bold', borderRadius: 2,
+                         boxShadow: '0 2px 8px rgba(225, 29, 72, 0.25)',
+                         '&:hover': { bgcolor: '#BE123C' }
+                       }}
+                     >
+                       今すぐ治療する
+                     </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Fade>
+          )}
+        </Box>
+      )}
 
       {/* セッション切り替えタブ */}
       <Stack direction="row" spacing={1} mb={4} justifyContent="center">
@@ -62,49 +171,80 @@ const StartScreen = ({
            const isActive = num === viewingSession;
            const isFuture = num > activeSession && !meta.exists;
            
-           let bg = 'bg-slate-100 text-slate-400';
-           if (isActive) bg = isSchool ? 'bg-emerald-600 text-white shadow-lg scale-105' : 'bg-indigo-600 text-white shadow-lg scale-105';
-           else if (meta.completed) bg = 'bg-slate-800 text-white';
-           else if (meta.exists) bg = 'bg-white border-2 border-indigo-600 text-indigo-600';
+           // スタイルクラスの決定 (Tailwind + inline style)
+           let btnClass = "relative w-16 h-16 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 ";
+           if (isActive) {
+             btnClass += isSchool 
+               ? "bg-emerald-600 text-white shadow-lg scale-105 ring-2 ring-emerald-300" 
+               : "bg-indigo-600 text-white shadow-lg scale-105 ring-2 ring-indigo-300";
+           } else if (meta.completed) {
+             btnClass += "bg-slate-800 text-white";
+           } else if (meta.exists) {
+             btnClass += "bg-white border-2 border-indigo-600 text-indigo-600";
+           } else {
+             btnClass += "bg-slate-100 text-slate-400";
+           }
+           
+           if (isFuture) btnClass += " opacity-50 cursor-not-allowed";
+           else btnClass += " hover:scale-105 cursor-pointer";
 
            return (
              <button
                key={num}
                disabled={isFuture}
                onClick={() => onSwitchSession(num)}
-               className={`relative w-16 h-16 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 ${bg} ${isFuture ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+               className={btnClass}
              >
-               <span className="text-xs font-bold">限目</span>
-               <span className="text-2xl font-black">{num}</span>
-               {meta.completed && <div className="absolute -top-2 -right-2 bg-yellow-400 text-slate-900 rounded-full p-0.5"><Zap size={12} fill="currentColor"/></div>}
+               <span className="text-[10px] font-bold opacity-80">SESSION</span>
+               <span className="text-2xl font-black leading-none">{num}</span>
+               {meta.completed && (
+                 <div className="absolute -top-1 -right-1 bg-yellow-400 text-slate-900 rounded-full p-0.5 shadow-sm">
+                   <Zap size={10} fill="currentColor"/>
+                 </div>
+               )}
              </button>
            );
         })}
       </Stack>
 
-      <Paper elevation={0} sx={{ p: 3, borderRadius: 4, mb: 3, bgcolor: 'white', border: '1px solid', borderColor: 'slate.200' }}>
+      <Paper elevation={0} sx={{ p: 3, borderRadius: 4, mb: 3, bgcolor: 'white', border: '1px solid', borderColor: 'divider' }}>
         
-        {/* モード設定 (データ未生成時のみ表示) */}
+        {/* データ未生成時のみ設定を表示 */}
         {!isViewingExists && (
-          <Stack spacing={3} mb={3}>
+          <Stack spacing={3} mb={4}>
+            {/* モード切替 */}
             <ToggleButtonGroup
               value={learningMode}
               exclusive
               onChange={(e, v) => v && setLearningMode(v)}
               fullWidth
               sx={{ 
-                '& .MuiToggleButton-root': { borderRadius: 3, fontWeight: 'bold', border: 'none', bgcolor: 'slate.50', mx: 0.5 },
-                '& .Mui-selected': { bgcolor: `${themeColor}.100 !important`, color: `${themeColor}.700 !important` }
+                '& .MuiToggleButton-root': { 
+                  borderRadius: 3, 
+                  fontWeight: 'bold', 
+                  border: 'none', 
+                  bgcolor: 'action.hover', 
+                  mx: 0.5,
+                  textTransform: 'none',
+                  fontSize: '0.95rem'
+                },
+                '& .Mui-selected': { 
+                  bgcolor: isSchool ? 'success.50 !important' : 'primary.50 !important', 
+                  color: isSchool ? 'success.main !important' : 'primary.main !important',
+                  border: '1px solid !important',
+                  borderColor: isSchool ? 'success.200 !important' : 'primary.200 !important'
+                }
               }}
             >
               <ToggleButton value="general" sx={{ py: 1.5 }}>
-                <GraduationCap size={18} className="mr-2"/> 受験総合
+                <GraduationCap size={18} style={{ marginRight: 8 }}/> 受験総合
               </ToggleButton>
               <ToggleButton value="school" sx={{ py: 1.5 }}>
-                <School size={18} className="mr-2"/> 定期テスト
+                <School size={18} style={{ marginRight: 8 }}/> 定期テスト
               </ToggleButton>
             </ToggleButtonGroup>
 
+            {/* 教科書単元選択 (Schoolモードのみ) */}
             {isSchool && (
                <FormControl fullWidth size="small">
                  <InputLabel>教科書の単元</InputLabel>
@@ -121,22 +261,23 @@ const StartScreen = ({
                </FormControl>
             )}
 
+            {/* 難易度選択 */}
             <Box>
-                <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" mb={1}>
-                    <Typography variant="caption" fontWeight="bold" color="text.secondary">難易度:</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" mb={1.5}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary">DIFFICULTY:</Typography>
                     {['easy', 'standard', 'hard'].map(d => (
                         <Chip 
                             key={d} 
                             label={d === 'easy' ? '基本' : d === 'standard' ? '標準' : '発展'} 
                             onClick={() => setDifficulty(d)}
-                            color={difficulty === d ? (isSchool ? 'success' : 'primary') : 'default'}
+                            color={difficulty === d ? themeColor : 'default'}
                             variant={difficulty === d ? 'filled' : 'outlined'}
                             size="small"
-                            sx={{ fontWeight: 'bold' }}
+                            sx={{ fontWeight: 'bold', minWidth: 60 }}
                         />
                     ))}
                 </Stack>
-                <Typography variant="caption" display="block" textAlign="center" color="text.secondary" sx={{ bgcolor: 'slate.50', py: 0.5, borderRadius: 1 }}>
+                <Typography variant="caption" display="block" textAlign="center" color="text.secondary" sx={{ bgcolor: 'action.hover', py: 0.5, borderRadius: 1 }}>
                     {currentDifficultyDesc}
                 </Typography>
             </Box>
@@ -148,22 +289,21 @@ const StartScreen = ({
             {isViewingExists ? (
                 // 既存データがある場合
                 isViewingCompleted ? (
-                    // 完了済み -> 復習ボタン (ログ画面へ遷移、またはLessonScreen経由でログ表示)
-                    // App.jsxの実装に合わせて、ここでは「onResume」を呼ぶのが適切
+                    // 完了済み -> 再確認
                     <Button 
                         fullWidth 
                         variant="outlined" 
                         color="inherit" 
                         size="large"
-                        onClick={onResume}
+                        onClick={onResumeLesson}
                         startIcon={<CheckCircle size={20} className="text-emerald-500" />}
                         sx={{ 
                             borderRadius: 3, 
                             py: 2, 
                             fontWeight: 'bold', 
-                            color: 'slate.700',
-                            borderColor: 'slate.300',
-                            bgcolor: 'slate.50'
+                            color: 'text.secondary',
+                            borderColor: 'divider',
+                            bgcolor: 'action.hover'
                         }}
                     >
                         学習結果を見直す
@@ -174,15 +314,15 @@ const StartScreen = ({
                         fullWidth 
                         variant="contained" 
                         size="large" 
-                        onClick={onResume}
+                        onClick={onResumeLesson}
                         startIcon={<Play fill="currentColor" />}
+                        color={themeColor}
                         sx={{ 
                             borderRadius: 3, 
                             py: 2, 
                             fontSize: '1.1rem', 
                             fontWeight: 'bold',
-                            bgcolor: isSchool ? '#059669' : '#4f46e5', // テーマカラー適用
-                            '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' }
+                            boxShadow: 3
                         }}
                     >
                         学習を再開する
@@ -194,17 +334,19 @@ const StartScreen = ({
                     fullWidth 
                     variant="contained" 
                     size="large" 
-                    // これが押されると App.jsx の handleStartLesson が走り、LessonScreenへ遷移する
-                    onClick={generateDailyLesson}
+                    onClick={onStartLesson}
                     disabled={isProcessing || isDailyLimitReached}
                     startIcon={isProcessing ? <Zap className="animate-spin"/> : <BookOpen />}
+                    color={themeColor}
                     sx={{ 
                         borderRadius: 3, 
                         py: 2, 
                         fontSize: '1.1rem', 
                         fontWeight: 'bold',
-                        bgcolor: isSchool ? '#059669' : '#4f46e5',
-                        '&:hover': { bgcolor: isSchool ? '#047857' : '#4338ca' }
+                        boxShadow: 4,
+                        background: isSchool 
+                          ? 'linear-gradient(to right, #059669, #10b981)' 
+                          : 'linear-gradient(to right, #4f46e5, #6366f1)'
                     }}
                 >
                     {isProcessing ? "AIが準備中..." : "学習をはじめる"}
@@ -220,24 +362,13 @@ const StartScreen = ({
                     onClick={onRegenerate}
                     disabled={isProcessing || regenCount >= 1}
                     startIcon={<RotateCcw size={14} />}
+                    sx={{ opacity: 0.8 }}
                 >
                     問題を生成し直す (あと{1 - regenCount}回)
                 </Button>
             )}
         </Stack>
       </Paper>
-
-      {/* 弱点復習ボタン */}
-      <Button 
-          fullWidth 
-          variant="outlined" 
-          onClick={startWeaknessReview}
-          disabled={isProcessing}
-          startIcon={<RotateCcw />}
-          sx={{ borderRadius: 3, py: 1.5, borderColor: 'slate.300', color: 'slate.600', fontWeight: 'bold' }}
-      >
-          苦手を復習モード
-      </Button>
 
       {isDailyLimitReached && (
           <Typography variant="caption" display="block" textAlign="center" color="error" mt={2} fontWeight="bold">

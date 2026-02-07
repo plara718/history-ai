@@ -1,95 +1,100 @@
 import React, { useState, useEffect } from 'react';
-import { CircularProgress, Box, Typography, Paper, Fade } from '@mui/material';
+import { Box, Typography, CircularProgress, Fade, Paper } from '@mui/material';
 import { Brain } from 'lucide-react';
 import { LOADING_TRIVIA } from '../lib/constants';
 
-// message プロパティを受け取るように修正
-const SmartLoader = ({ message }) => {
-  // 安全対策: もしLOADING_TRIVIAが読み込めなくてもクラッシュさせない
-  const triviaList = (LOADING_TRIVIA && LOADING_TRIVIA.length > 0) 
-    ? LOADING_TRIVIA 
-    : ["歴史の扉を開いています...", "準備中..."];
-
+const SmartLoader = ({ message = "読み込み中..." }) => {
   const [idx, setIdx] = useState(0);
 
-  useEffect(() => { 
-      // リストがある場合のみタイマーを動かす
-      if (triviaList.length > 1) {
-          const i = setInterval(() => setIdx(p => (p + 1) % triviaList.length), 3000); 
-          return () => clearInterval(i); 
-      }
-  }, [triviaList.length]);
+  // 定数が空だった場合のフォールバック
+  const triviaList = (LOADING_TRIVIA && LOADING_TRIVIA.length > 0) 
+    ? LOADING_TRIVIA 
+    : [
+        "歴史は繰り返すと言いますが、全く同じことが起こるわけではありません。",
+        "準備中です... 歴史の扉を開いています。",
+        "暗記よりも「なぜ？」という流れを大切にしましょう。"
+      ];
 
-  // 表示するテキストの決定（豆知識 または デフォルト）
-  const currentText = triviaList[idx] || "読み込み中...";
+  useEffect(() => {
+    // 4秒ごとに豆知識を切り替え
+    const intervalId = setInterval(() => {
+      setIdx((prev) => (prev + 1) % triviaList.length);
+    }, 4000);
+    return () => clearInterval(intervalId);
+  }, [triviaList.length]);
 
   return (
     <Box 
-      display="flex" 
-      flexDirection="column" 
-      alignItems="center" 
-      justifyContent="center" 
       sx={{ 
-        minHeight: '60vh', // 画面中央に来るように高さ確保
-        py: 10 
+        height: '100vh', 
+        width: '100%',
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        bgcolor: '#f8fafc', // slate-50
+        position: 'fixed', // 全画面を覆う
+        top: 0,
+        left: 0,
+        zIndex: 9999
       }}
-      className="animate-fade-in"
     >
-      <Box position="relative" display="inline-flex">
+      <Box position="relative" display="inline-flex" mb={4}>
         <CircularProgress 
           size={80} 
           thickness={4} 
-          sx={{ color: 'primary.main' }} // indigo.500 -> primary.main
+          sx={{ color: 'primary.main' }} 
         />
         <Box
-          top={0}
-          left={0}
-          bottom={0}
-          right={0}
-          position="absolute"
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
+          sx={{
+            top: 0,
+            left: 0,
+            bottom: 0,
+            right: 0,
+            position: 'absolute',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
           <Brain 
             size={32} 
-            color="#4f46e5" // indigo-600
-            className="animate-pulse" 
+            className="text-indigo-600 animate-pulse" 
+            style={{ stroke: '#4f46e5' }}
           />
         </Box>
       </Box>
       
-      {/* メインメッセージ (App.jsxから渡されたもの) */}
       <Typography 
         variant="h6" 
         fontWeight="800" 
         color="text.primary" 
-        sx={{ mt: 4, mb: 3 }}
+        sx={{ mb: 5, letterSpacing: 1 }}
+        className="animate-pulse"
       >
-          {message || "AIが講義を生成中..."}
+          {message}
       </Typography>
 
-      {/* 豆知識エリア */}
-      <Fade in={true} key={idx} timeout={500}>
+      <Fade in={true} key={idx} timeout={800}>
         <Paper 
             elevation={0} 
             sx={{ 
                 p: 3, 
-                maxWidth: 320, 
+                maxWidth: 360, 
+                width: '90%',
                 textAlign: 'center', 
-                bgcolor: 'background.paper', // indigo.50 -> background.paper (より汎用的に)
-                color: 'text.secondary',
+                bgcolor: 'white', 
                 borderRadius: 4,
                 border: '1px solid',
                 borderColor: 'divider',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+                boxShadow: '0 10px 40px -10px rgba(0,0,0,0.1)'
             }}
         >
-            <Typography variant="overline" display="block" color="primary.main" fontWeight="bold" mb={1} letterSpacing={1}>
+            <Typography variant="overline" display="block" color="primary.main" fontWeight="900" mb={1} letterSpacing={1.5}>
                 💡 歴史豆知識
             </Typography>
-            <Typography variant="body2" fontWeight="500" lineHeight={1.6}>
-                {currentText}
+            <Typography variant="body2" fontWeight="500" lineHeight={1.8} color="text.secondary">
+                {triviaList[idx]}
             </Typography>
         </Paper>
       </Fade>

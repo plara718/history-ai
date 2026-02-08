@@ -407,6 +407,7 @@ const SortQuestion = ({ question, onAnswer }) => {
         sx={{ mt: 4, borderRadius: 3, fontWeight: 'bold', py: 1.5, boxShadow: 2 }}
         onClick={handleSubmit}
       >
+        
         回答を決定する
       </Button>
     </Box>

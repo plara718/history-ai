@@ -1,499 +1,346 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Box, Typography, Card, CardContent, Button, TextField,
-  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
-  Snackbar, Alert, LinearProgress, Fab, Zoom, Chip, Divider, Paper
+  Box, Button, Typography, Container, Paper, Stack, LinearProgress, TextField, Alert
 } from '@mui/material';
-import { 
-  EmojiEvents as TrophyIcon, 
-  Warning as WarningIcon, 
-  ContentCopy as ContentCopyIcon,
-  Home as HomeIcon,
-  School as LectureIcon,
-  Quiz as QuizIcon,
-  Edit as EssayIcon,
-  CheckCircle as CheckIcon,
-  ArrowForward as ArrowRightIcon
-} from '@mui/icons-material';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { APP_ID } from '../lib/constants';
+import { getTodayString, scrollToTop } from '../lib/utils';
+import { generateDailyLesson, gradeEssay } from '../lib/gemini'; 
 
-import { useLessonGenerator } from '../hooks/useLessonGenerator';
-import { useLessonGuard } from '../hooks/useLessonGuard';
+// Components
+import SmartLoader from '../components/SmartLoader';
 import { SafeMarkdown } from '../components/SafeMarkdown';
-import { QuizSection } from './QuizSection';
-import { EssaySection } from './EssaySection';
-import { saveLessonStats } from '../lib/stats'; 
-import { scrollToTop } from '../lib/utils';
-import SmartLoader from '../components/SmartLoader'; // ローダーも統合
+import { SummaryScreen } from './SummaryScreen';
+import { ChevronRight, Edit3 } from 'lucide-react';
 
-export const LessonScreen = ({ apiKey, userId, learningMode, difficulty, selectedUnit, onExit }) => {
-  // ステップ管理: 'loading' | 'lecture' | 'quiz' | 'essay' | 'result'
-  const [currentStep, setCurrentStep] = useState('loading');
+export const LessonScreen = ({ 
+  apiKey, userId, learningMode, difficulty, selectedUnit, 
+  sessionNum,      // 表示しようとしているセッション番号
+  currentProgress, // 現在の進行状況 (これより小さい番号は過去)
+  reviewContext, 
+  onExit 
+}) => {
+  // ステータス: 'loading' | 'error' | 'lecture' | 'quiz' | 'essay' | 'grading' | 'summary'
+  const [step, setStep] = useState('loading');
   const [lessonData, setLessonData] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null); 
   
-  // 成績データ
-  const [scores, setScores] = useState({
-    quizCorrect: 0, quizTotal: 0,
-    essayScore: 0, essayTotal: 10,
-    nextAction: null
-  });
+  // クイズ状態
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [userQuizAnswers, setUserQuizAnswers] = useState({});
+  const [quizResults, setQuizResults] = useState([]);
 
-  // 詳細結果保持用
-  const [quizResults, setQuizResults] = useState([]); 
-  const [essayGradingResult, setEssayGradingResult] = useState(null);
+  // 記述状態
+  const [essayAnswer, setEssayAnswer] = useState("");
+  const [gradingResult, setGradingResult] = useState(null);
 
-  // 復元用データ
-  const [resumeData, setResumeData] = useState(null);
-
-  // UI状態
-  const [showExitDialog, setShowExitDialog] = useState(false);
-  const [showCopySnack, setShowCopySnack] = useState(false);
-
-  const { generateDailyLesson, fetchTodayLesson, saveProgress, isProcessing, genError } = useLessonGenerator(apiKey, userId);
-
-  // ガード設定 (ローディングと結果画面以外で有効)
-  const isGuardActive = currentStep !== 'loading' && currentStep !== 'result';
-  useLessonGuard(isGuardActive, () => setShowExitDialog(true));
-
-  // ステップ変更時にトップへスクロール
-  useEffect(() => {
-    scrollToTop();
-  }, [currentStep]);
-
-  // 初期化 & 復元ロジック
+  // --- 初期化 & データ取得/生成 ---
   useEffect(() => {
     const initLesson = async () => {
+      if (!userId || !sessionNum) return;
+      
       try {
-        const sessionNum = 1; // 現状は1セッション固定
-        const savedData = await fetchTodayLesson(sessionNum);
+        setStep('loading');
+        setErrorMsg(null);
+
+        const today = getTodayString();
+        const docId = `${today}_${sessionNum}`;
+        const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', docId);
         
-        if (savedData && !savedData.completed) {
-          console.log("Resuming lesson...");
-          setLessonData(savedData);
-          if (savedData.scores) setScores(savedData.scores);
-          if (savedData.progress) setResumeData(savedData.progress);
-          if (savedData.quizResults) setQuizResults(savedData.quizResults);
+        // 1. 既存データの確認
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          // --- パターンA: データがある (正常) ---
+          console.log("Loading existing lesson data...");
+          const data = docSnap.data();
+          setLessonData(data);
           
-          setCurrentStep(savedData.currentStep || 'lecture');
-        } else {
-          console.log("Generating new lesson...");
-          const data = await generateDailyLesson(learningMode, difficulty, selectedUnit, sessionNum);
-          if (data) {
-            setLessonData(data);
-            setCurrentStep('lecture');
-            saveProgress(sessionNum, { currentStep: 'lecture', content: data.content });
+          if (data.completed) {
+            setQuizResults(data.quizResults || []);
+            setGradingResult(data.gradingResult || null);
+            setStep('summary');
+          } else {
+            setStep('lecture');
           }
+
+        } else {
+          // --- パターンB: データがない ---
+          
+          // ★ ガード処理: 過去のセッションなら生成しない
+          // もし過去のセッション(sessionNum < currentProgress)なのにデータが無いなら、
+          // それは「未実施」ではなく「データエラー」として扱う
+          if (currentProgress && sessionNum < currentProgress) {
+             console.warn("過去データの読み込みに失敗しました。生成は行いません。");
+             setErrorMsg("このセッションの学習データが見つかりませんでした。");
+             setStep('error');
+             return;
+          }
+
+          // ★ ここに来るのは「現在のセッション(新規)」の場合のみ
+          console.log("Generating new lesson...");
+          
+          if (!apiKey) {
+            alert("APIキーが設定されていません。設定画面から入力してください。");
+            onExit();
+            return;
+          }
+
+          const newLesson = await generateDailyLesson(
+            apiKey, 
+            learningMode, 
+            difficulty, 
+            reviewContext ? `復習モード: ${reviewContext.target_mistake}` : selectedUnit, 
+            reviewContext
+          );
+
+          if (!newLesson) throw new Error("生成に失敗しました");
+
+          // DBに保存
+          const initData = {
+            ...newLesson,
+            userId,
+            sessionNum,
+            createdAt: new Date().toISOString(),
+            completed: false
+          };
+          await setDoc(docRef, initData);
+          setLessonData(initData);
+          setStep('lecture');
         }
       } catch (e) {
-        console.error("Lesson init failed", e);
+        console.error(e);
+        setErrorMsg("エラーが発生しました: " + e.message);
+        setStep('error');
       }
     };
+
     initLesson();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId, sessionNum]); 
 
-  // 進捗保存ヘルパー
-  const handleProgressSave = useCallback((step, progressData = {}, newScores = null) => {
-    const sessionNum = 1;
-    const dataToSave = {
-      currentStep: step,
-      progress: progressData, 
-      timestamp: new Date().toISOString()
+  // --- ハンドラ ---
+
+  const handleStartQuiz = () => {
+    setStep('quiz');
+    scrollToTop();
+  };
+
+  const handleQuizAnswer = (val) => {
+    setUserQuizAnswers(prev => ({ ...prev, [quizIndex]: val }));
+  };
+
+  const handleNextQuiz = () => {
+    const currentQ = lessonData.content.true_false[quizIndex];
+    const userAns = userQuizAnswers[quizIndex];
+    // correctが0ならTrueが正解、1ならFalseが正解という前提
+    const isCorrect = (userAns === (currentQ.correct === 0)); 
+    
+    const result = {
+      q: currentQ.q,
+      userAns,
+      is_correct: isCorrect,
+      exp: currentQ.exp
     };
-    if (newScores) dataToSave.scores = newScores;
-    saveProgress(sessionNum, dataToSave);
-  }, [saveProgress]);
-
-  // --- ステップ遷移ハンドラー ---
-
-  // クイズ回答中の進捗保存
-  const handleQuizProgress = (currentIndex, currentCorrect) => {
-    handleProgressSave('quiz', { quizIndex: currentIndex, quizCorrect: currentCorrect });
-  };
-
-  // クイズ完了
-  const handleQuizComplete = (result) => {
-    // result = { correct, total, results: [...] }
-    const newScores = { ...scores, quizCorrect: result.correct, quizTotal: result.total };
-    setScores(newScores);
-    setQuizResults(result.results || []);
-
-    // 次のステップへ
-    setCurrentStep('essay');
-    handleProgressSave('essay', { quizResults: result.results }, newScores);
-  };
-
-  // 記述の下書き保存
-  const handleEssayDraft = (draftText) => {
-    handleProgressSave('essay', { essayDraft: draftText });
-  };
-
-  // 記述完了 & 最終結果保存
-  const handleEssayComplete = async (result) => {
-    const newScores = { ...scores, essayScore: result.score, nextAction: result.recommended_action };
-    setScores(newScores);
-    setEssayGradingResult(result);
     
-    // 1. 完了状態をFirestoreに保存
-    await saveProgress(1, { 
-      currentStep: 'result', 
-      scores: newScores, 
-      completed: true,
-      gradingResult: result,
-      quizResults: quizResults // 最終結果にも含める
-    });
+    const newResults = [...quizResults, result];
+    setQuizResults(newResults);
 
-    // 2. 統計データの更新 (Stats)
-    if (lessonData && result) {
-       const combinedStatsData = {
-         quiz_results: quizResults,
-         essay_grading: {
-           score: result.score,
-           tags: result.tags
-         }
-       };
-       await saveLessonStats(userId, lessonData, combinedStatsData);
+    if (quizIndex < (lessonData.content.true_false.length - 1)) {
+      setQuizIndex(quizIndex + 1);
+    } else {
+      setStep('essay');
     }
-
-    setCurrentStep('result');
+    scrollToTop();
   };
 
-  // 振り返りメモ保存
-  const handleReflectionSave = (text) => {
-    saveProgress(1, { reflection: text });
-  };
-
-  // クリップボードコピー
-  const handleCopyToClipboard = () => {
-    if (!lessonData?.content) return;
-    const c = lessonData.content;
-    const r = essayGradingResult || {};
+  const handleGradeEssay = async () => {
+    if (!essayAnswer.trim()) return;
+    setStep('grading');
     
-    const textToCopy = `
-# 日本史学習レポート: ${c.theme}
-- **日時**: ${new Date().toLocaleString()}
-- **モード**: ${learningMode === 'school' ? '定期テスト' : '入試対策'} (${difficulty})
+    try {
+      const result = await gradeEssay(apiKey, lessonData.content.essay.q, essayAnswer, difficulty);
+      setGradingResult(result);
+      
+      const today = getTodayString();
+      const docRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
+      
+      await setDoc(docRef, {
+        quizResults: quizResults, 
+        gradingResult: result,
+        essayAnswer: essayAnswer,
+        completed: true,
+        completedAt: new Date().toISOString()
+      }, { merge: true });
 
-## 1. 成績概要
-- **QUIZ**: ${scores.quizCorrect}/${scores.quizTotal}
-- **ESSAY**: ${scores.essayScore}/${scores.essayTotal}
-
-## 2. AI講師の分析
-- **総合評価**: ${r.overall_comment || 'なし'}
-- **弱点タグ**: ${r.tags ? r.tags.join(', ') : 'なし'}
-- **次なる一手**: ${scores.nextAction || 'なし'}
-
-## 3. 記述回答の振り返り
-${r.correction || '(添削データなし)'}
-
-## 4. 学習資料（講義内容）
-${c.lecture}
-
----
-Generated by History AI App
-    `.trim();
-
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setShowCopySnack(true);
-    });
-  };
-
-  const handleExitConfirm = () => {
-    setShowExitDialog(false);
-    if (onExit) onExit(); 
-  };
-
-  const calculateTotalScore = () => {
-    const { quizCorrect, quizTotal, essayScore, essayTotal } = scores;
-    const totalPossible = quizTotal + essayTotal; 
-    if (totalPossible === 0) return 0;
-    return Math.round(((quizCorrect + essayScore) / totalPossible) * 100);
+      setStep('summary');
+    } catch (e) {
+      console.error(e);
+      alert("添削に失敗しました。");
+      setStep('essay');
+    }
+    scrollToTop();
   };
 
   // --- レンダリング ---
 
-  if (currentStep === 'loading' || isProcessing) {
-    return <SmartLoader message="AI講師があなただけの授業を準備しています..." />;
+  if (step === 'loading') {
+    return <SmartLoader message="AIが授業を準備中..." />;
   }
 
-  if (genError) {
+  // ★ エラー表示画面 (データなし/生成失敗時)
+  if (step === 'error') {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
-        <Alert severity="error" variant="filled" sx={{ borderRadius: 2 }}>
-          {genError}
-          <Button color="inherit" size="small" onClick={onExit} sx={{ ml: 2, fontWeight: 'bold' }}>
-            戻る
-          </Button>
+      <Container maxWidth="sm" className="animate-fade-in" sx={{ py: 10, textAlign: 'center' }}>
+        <Alert severity="warning" sx={{ mb: 3, justifyContent: 'center', py: 2, fontWeight: 'bold' }}>
+          {errorMsg || "データの読み込みに失敗しました"}
         </Alert>
-      </Box>
+        <Button variant="outlined" onClick={onExit}>ホームに戻る</Button>
+      </Container>
     );
   }
 
-  if (!lessonData) return null;
-
-  // ----------------------------------------------------------------
-  // 結果画面 (Result View)
-  // ----------------------------------------------------------------
-  if (currentStep === 'result') {
-    const totalScore = calculateTotalScore();
+  if (step === 'summary') {
     return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: 12 }} className="animate-fade-in">
-        {/* ヘッダー */}
-        <Box sx={{ textAlign: 'center', pt: 6, pb: 4, px: 2, bgcolor: 'white', borderBottom: '1px solid #e2e8f0' }}>
-           <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 'bold', letterSpacing: 2 }}>
-             MISSION COMPLETE
-           </Typography>
-           <Typography variant="h5" sx={{ fontWeight: '900', color: 'text.primary', mt: 1 }}>
-             {lessonData.content.theme}
-           </Typography>
+      <SummaryScreen 
+        lessonData={lessonData}
+        gradingResult={gradingResult}
+        quizResults={quizResults}
+        onFinish={onExit}
+      />
+    );
+  }
+
+  if (step === 'lecture') {
+    return (
+      <Container maxWidth="md" className="animate-fade-in">
+        <Box mb={4}>
+          <Typography variant="overline" color="primary" fontWeight="bold">
+            SESSION {sessionNum}
+          </Typography>
+          <Typography variant="h5" fontWeight="900" gutterBottom>
+            {lessonData.content.theme}
+          </Typography>
         </Box>
 
-        <Box sx={{ maxWidth: 600, mx: 'auto', p: 3 }}>
-          {/* スコアカード */}
-          <Card elevation={0} sx={{ borderRadius: 4, border: '1px solid', borderColor: 'divider', mb: 4, overflow: 'visible' }}>
-            <CardContent sx={{ p: 4 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', textAlign: 'center' }}>
-                <Box>
-                  <Typography variant="caption" fontWeight="bold" color="text.secondary">QUIZ</Typography>
-                  <Typography variant="h4" fontWeight="bold" color="text.primary">
-                    {scores.quizCorrect}<span style={{ fontSize: '1rem', color: '#9ca3af' }}>/{scores.quizTotal}</span>
-                  </Typography>
-                </Box>
-                <Divider orientation="vertical" flexItem sx={{ height: 40, alignSelf: 'center' }} />
-                <Box>
-                  <Typography variant="caption" fontWeight="bold" color="text.secondary">ESSAY</Typography>
-                  <Typography variant="h4" fontWeight="bold" color="text.primary">
-                    {scores.essayScore}<span style={{ fontSize: '1rem', color: '#9ca3af' }}>/{scores.essayTotal}</span>
-                  </Typography>
-                </Box>
-                <Divider orientation="vertical" flexItem sx={{ height: 40, alignSelf: 'center' }} />
-                <Box>
-                  <Typography variant="caption" fontWeight="bold" color="text.secondary">TOTAL</Typography>
-                  <Typography variant="h3" fontWeight="900" color="primary.main">
-                    {isNaN(totalScore) ? 0 : totalScore}<span style={{ fontSize: '1rem' }}>%</span>
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-
-          {/* Next Action Card */}
-          <Paper 
-            elevation={0} 
-            sx={{ 
-              p: 3, mb: 4, borderRadius: 4, 
-              bgcolor: '#fffbf0', border: '2px solid #fde68a', 
-              position: 'relative' 
-            }}
-          >
-             <Box 
-               sx={{ 
-                 position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', 
-                 bgcolor: '#b45309', color: 'white', px: 2, py: 0.5, 
-                 borderRadius: 20, fontSize: '0.75rem', fontWeight: 'bold', 
-                 display: 'flex', alignItems: 'center', gap: 0.5 
-               }}
-             >
-               <TrophyIcon fontSize="small" /> Next Strategy
-             </Box>
-             <Typography variant="body1" align="center" fontWeight="bold" color="#92400e" sx={{ mt: 1 }}>
-               {scores.nextAction || "今回の弱点を踏まえ、資料集の図版を確認しましょう。"}
-             </Typography>
-          </Paper>
-          
-          {/* ノート機能 */}
-          <Box sx={{ mb: 6 }}>
-            <Button 
-              fullWidth
-              variant="outlined" 
-              startIcon={<ContentCopyIcon />}
-              onClick={handleCopyToClipboard}
-              sx={{ 
-                borderRadius: 3, py: 1.5, mb: 3,
-                borderStyle: 'dashed', borderWidth: 2, fontWeight: 'bold', 
-                bgcolor: 'white',
-                '&:hover': { borderStyle: 'dashed', borderWidth: 2, bgcolor: 'primary.50' }
-              }}
-            >
-              学習ログをコピーする
-            </Button>
-            
-            <TextField
-              label="Self Reflection (振り返りメモ)"
-              multiline
-              rows={3}
-              fullWidth
-              placeholder="例：荘園公領制の因果関係が曖昧だった..."
-              variant="outlined"
-              onBlur={(e) => handleReflectionSave(e.target.value)}
-              sx={{ bgcolor: 'white', borderRadius: 3 }}
-            />
-          </Box>
-        </Box>
-
-        {/* 固定フッター (ホームへ戻る) */}
-        <Paper 
-          elevation={4}
-          sx={{ 
-            position: 'fixed', bottom: 0, left: 0, right: 0, 
-            p: 2, bgcolor: 'rgba(255,255,255,0.9)', 
-            backdropFilter: 'blur(8px)', borderTop: '1px solid divider',
-            display: 'flex', justifyContent: 'center', zIndex: 10
-          }}
-        >
-          <Button 
-            variant="contained" size="large"
-            startIcon={<HomeIcon />}
-            onClick={onExit} 
-            sx={{ 
-              borderRadius: 4, px: 6, py: 1.5, fontWeight: 'bold', 
-              maxWidth: 400, width: '100%',
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
-            }}
-          >
-            ホームに戻る
-          </Button>
+        <Paper elevation={0} sx={{ p: { xs: 2, sm: 4 }, borderRadius: 4, bgcolor: 'white', border: '1px solid', borderColor: 'divider', mb: 4 }}>
+          <SafeMarkdown content={lessonData.content.lecture} />
         </Paper>
 
-        <Snackbar
-          open={showCopySnack}
-          autoHideDuration={2000}
-          onClose={() => setShowCopySnack(false)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          sx={{ bottom: { xs: 90, sm: 100 } }} 
+        <Button 
+          variant="contained" 
+          fullWidth 
+          size="large"
+          onClick={handleStartQuiz}
+          endIcon={<ChevronRight />}
+          sx={{ py: 2, borderRadius: 3, fontWeight: 'bold', boxShadow: 3 }}
         >
-          <Alert severity="success" variant="filled" sx={{ width: '100%', fontWeight: 'bold', borderRadius: 2 }}>
-            クリップボードにコピーしました！
-          </Alert>
-        </Snackbar>
-      </Box>
+          理解度チェックに進む
+        </Button>
+      </Container>
     );
   }
 
-  // ----------------------------------------------------------------
-  // 学習画面 (Lesson View)
-  // ----------------------------------------------------------------
-  return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', pb: 10 }}>
-      {/* ステップバー (Sticky) */}
-      <Paper 
-        elevation={1} 
-        sx={{ 
-          position: 'sticky', top: 0, zIndex: 10, 
-          px: 2, py: 1.5, borderRadius: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}
-      >
-        <Typography variant="subtitle2" noWrap sx={{ maxWidth: '60%', fontWeight: 'bold', color: 'text.primary' }}>
-          {lessonData.content.theme}
-        </Typography>
-        <Chip 
-          size="small"
-          color="primary" 
-          label={
-            currentStep === 'lecture' ? 'STEP 1: 講義' :
-            currentStep === 'quiz' ? 'STEP 2: 演習' :
-            currentStep === 'essay' ? 'STEP 3: 記述' : 'Review'
-          }
-          icon={
-            currentStep === 'lecture' ? <LectureIcon /> :
-            currentStep === 'quiz' ? <QuizIcon /> :
-            currentStep === 'essay' ? <EssayIcon /> : <CheckIcon />
-          }
-          sx={{ fontWeight: 'bold' }}
-        />
-      </Paper>
+  if (step === 'quiz') {
+    const questions = lessonData.content.true_false || [];
+    const currentQ = questions[quizIndex];
+    const progress = ((quizIndex) / questions.length) * 100;
 
-      <Box sx={{ maxWidth: '800px', mx: 'auto', p: { xs: 2, md: 4 } }}>
-        {currentStep === 'lecture' && (
-          <Box className="animate-fade-in">
-            <Card elevation={0} sx={{ borderRadius: 4, border: '1px solid', borderColor: 'divider', p: { xs: 2, md: 4 }, mb: 4 }}>
-              <Box sx={{ mb: 4, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="overline" color="text.secondary" fontWeight="bold">
-                  Target Theme
-                </Typography>
-                <Typography variant="h5" fontWeight="900" gutterBottom>
-                  {lessonData.content.theme}
-                </Typography>
-                
-                <Alert severity="info" icon={false} sx={{ mt: 2, borderRadius: 2, bgcolor: 'warning.50', color: 'warning.900', border: '1px solid', borderColor: 'warning.200' }}>
-                  <Typography variant="subtitle2" fontWeight="bold" color="warning.800" gutterBottom>
-                    {learningMode === 'school' ? '📌 定期テスト対策ポイント' : '⚡ 入試の急所'}
-                  </Typography>
-                  <Typography variant="body2">
-                    {learningMode === 'school' ? '太字の用語を中心に、因果関係（なぜ→どうなった）を意識して読みましょう。' : '出来事の単なる暗記ではなく、背景にある「構造」や「比較」に注目してください。'}
-                  </Typography>
-                </Alert>
-              </Box>
-              
-              <SafeMarkdown content={lessonData.content.lecture} />
-            </Card>
-            
-            <Button
-              variant="contained"
-              fullWidth
-              size="large"
-              endIcon={<ArrowRightIcon />}
-              onClick={() => setCurrentStep('quiz')}
-              sx={{ 
-                py: 2, borderRadius: 3, fontWeight: 'bold', fontSize: '1.1rem',
-                boxShadow: '0 8px 16px -4px rgba(79, 70, 229, 0.4)',
-                background: 'linear-gradient(to right, #4f46e5, #6366f1)'
-              }}
-            >
-              演習問題にチャレンジ
-            </Button>
-          </Box>
-        )}
+    return (
+      <Container maxWidth="sm" className="animate-fade-in" sx={{ py: 4 }}>
+        <Stack spacing={3}>
+           <Box>
+             <LinearProgress variant="determinate" value={progress} sx={{ height: 8, borderRadius: 4, mb: 1 }} />
+             <Typography variant="caption" color="text.secondary" fontWeight="bold">
+               QUESTION {quizIndex + 1} / {questions.length}
+             </Typography>
+           </Box>
 
-        {currentStep === 'quiz' && (
-          <QuizSection 
-            lessonData={lessonData} 
-            initialData={resumeData} 
-            onProgress={handleQuizProgress} 
-            onComplete={handleQuizComplete} 
-          />
-        )}
+           <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
+             <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.6 }}>
+               {currentQ.q}
+             </Typography>
+           </Paper>
 
-        {currentStep === 'essay' && (
-          <EssaySection 
-            apiKey={apiKey}
-            userId={userId} // userIdを渡す
-            lessonData={lessonData} 
-            learningMode={learningMode}
-            initialDraft={resumeData?.essayDraft} 
-            onDraftChange={handleEssayDraft}
-            onFinish={handleEssayComplete} 
-          />
-        )}
-      </Box>
+           <Stack direction="row" spacing={2}>
+             {[true, false].map((val) => (
+               <Button
+                 key={val.toString()}
+                 variant={userQuizAnswers[quizIndex] === val ? "contained" : "outlined"}
+                 color={val ? "primary" : "error"}
+                 fullWidth
+                 onClick={() => handleQuizAnswer(val)}
+                 sx={{ py: 3, borderRadius: 3, fontSize: '1.2rem', fontWeight: 'bold' }}
+               >
+                 {val ? "⭕ 正しい" : "❌ 誤り"}
+               </Button>
+             ))}
+           </Stack>
 
-      {/* 中断確認ダイアログ */}
-      <Dialog
-        open={showExitDialog}
-        onClose={() => setShowExitDialog(false)}
-        PaperProps={{ sx: { borderRadius: 4, p: 1 } }}
-      >
-        <Box sx={{ textAlign: 'center', pt: 2 }}>
-          <WarningIcon color="warning" sx={{ fontSize: 48 }} />
+           <Button 
+             variant="contained" 
+             size="large"
+             disabled={userQuizAnswers[quizIndex] === undefined}
+             onClick={handleNextQuiz}
+             sx={{ py: 2, borderRadius: 3, fontWeight: 'bold', mt: 2 }}
+           >
+             次へ進む
+           </Button>
+        </Stack>
+      </Container>
+    );
+  }
+
+  if (step === 'grading') {
+    return <SmartLoader message="AIが答案を採点中..." />;
+  }
+
+  if (step === 'essay') {
+    return (
+      <Container maxWidth="md" className="animate-fade-in">
+        <Box mb={4}>
+          <Typography variant="overline" color="secondary" fontWeight="bold">
+            FINAL CHALLENGE
+          </Typography>
+          <Typography variant="h5" fontWeight="900">
+            記述問題
+          </Typography>
         </Box>
-        <DialogTitle sx={{ textAlign: 'center', fontWeight: 'bold' }}>
-          学習を中断しますか？
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText align="center">
-            現在の進捗は一時保存されていますが、<br/>
-            ホーム画面に戻ると最初からになる場合があります。
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions sx={{ justifyContent: 'center', pb: 2, gap: 1 }}>
-          <Button onClick={() => setShowExitDialog(false)} variant="outlined" sx={{ borderRadius: 3, px: 3, fontWeight: 'bold' }}>
-            続ける
-          </Button>
-          <Button onClick={handleExitConfirm} variant="contained" color="error" autoFocus sx={{ borderRadius: 3, px: 3, fontWeight: 'bold' }}>
-            中断する
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
+
+        <Paper elevation={0} sx={{ p: 4, borderRadius: 4, mb: 4, border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            {lessonData.content.essay.q}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" mb={3}>
+            200文字以内で回答してください。要点を簡潔にまとめる力が試されます。
+          </Typography>
+          
+          <TextField
+            fullWidth
+            multiline
+            rows={6}
+            placeholder="ここに回答を入力..."
+            value={essayAnswer}
+            onChange={(e) => setEssayAnswer(e.target.value)}
+            sx={{ bgcolor: '#f8fafc' }}
+          />
+        </Paper>
+
+        <Button 
+          variant="contained" 
+          fullWidth 
+          size="large"
+          color="secondary"
+          onClick={handleGradeEssay}
+          disabled={!essayAnswer.trim()}
+          startIcon={<Edit3 />}
+          sx={{ py: 2, borderRadius: 3, fontWeight: 'bold', boxShadow: 3 }}
+        >
+          採点する
+        </Button>
+      </Container>
+    );
+  }
+
+  return null;
 };

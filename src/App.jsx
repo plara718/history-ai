@@ -27,7 +27,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { NavButton } from './components/NavButton';       
 
 // Theme
-import theme from './theme'; // ★ 修正: 外部ファイルからインポート
+import theme from './theme'; 
 
 const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23"; 
 
@@ -83,84 +83,70 @@ const App = () => {
     try { await signOut(auth); window.location.reload(); } catch (error) { console.error(error); }
   };
 
-  // 学習開始ハンドラ (通常・復習共通)
   const startLesson = (mode, diff, unit, context = null) => {
     setLearningMode(mode);
     setDifficulty(diff);
     if (unit) setSelectedUnit(unit);
     setReviewContext(context);
-    
     setStep('lesson');
     scrollToTop();
   };
 
-  // 通常学習開始
   const handleStartGeneral = () => {
     startLesson(learningMode, difficulty, selectedUnit, null);
   };
 
-  // 復習開始 (戦略データを受け取る)
   const handleStartReview = (strategy) => {
     startLesson('review', 'standard', null, strategy);
   };
 
-  // 再開
   const handleResume = () => {
     setStep('lesson');
     scrollToTop();
   };
 
-  // 学習完了・終了時の処理 (LessonScreenから呼ばれる)
   const handleLessonExit = () => {
     setStep('start');
-    setReviewContext(null); // コンテキストクリア
-    
-    // セッション情報の再取得 (完了マーク反映のため)
+    setReviewContext(null); 
     session.refresh();
-    
     scrollToTop();
   };
 
   const handleRegenerate = async () => {
-      // 簡易実装
       if (regenCount >= 1) {
           alert("作り直しは1日1回までです");
           return;
       }
       if (!window.confirm("現在の内容を破棄して再生成しますか？")) return;
-      
       setRegenCount(prev => prev + 1);
       setStep('start');
       setTimeout(() => setStep('lesson'), 100);
   };
 
-  // --- Render Logic ---
+  // --- Render Logic (Content Decision) ---
+  const renderContent = () => {
+    // 1. ローディング中
+    if (authLoading) return <SmartLoader message="認証中..." />;
+    
+    // 2. 管理者画面
+    if (currentHash === '#/admin') {
+        if (!user || user.uid !== ADMIN_UID) {
+          return (
+            <Box p={4} textAlign="center">
+              <p>管理者権限がありません</p>
+              <button onClick={()=>window.location.hash=''}>戻る</button>
+            </Box>
+          );
+        }
+        return <AdminDashboard />;
+    }
+    
+    // 3. 未ログイン
+    if (!user) return <LoginScreen />;
 
-  if (authLoading) return <SmartLoader message="認証中..." />;
-  
-  // 管理者画面
-  if (currentHash === '#/admin') {
-      if (!user || user.uid !== ADMIN_UID) {
-        return (
-          <Box p={4} textAlign="center">
-            <p>管理者権限がありません</p>
-            <button onClick={()=>window.location.hash=''}>戻る</button>
-          </Box>
-        );
-      }
-      return <AdminDashboard />;
-  }
-  
-  // 未ログイン
-  if (!user) return <ThemeProvider theme={theme}><CssBaseline /><LoginScreen /></ThemeProvider>;
-
-  // メイン画面
-  return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    // 4. メインアプリ画面
+    return (
       <Container maxWidth="md" sx={{ minHeight: '100vh', py: 0, pb: 12 }}>
-        
-        {/* コンテンツエリア (タブ切り替え) */}
         <Box sx={{ minHeight: '80vh' }}>
           {activeTab === 'train' && (
             step === 'lesson' ? (
@@ -170,31 +156,25 @@ const App = () => {
                   learningMode={learningMode}
                   difficulty={difficulty}
                   selectedUnit={selectedUnit}
-                  // 復習モード時は戦略データを渡す
+                  sessionNum={session.viewingSession}
+                  currentProgress={session.activeSession}
                   reviewContext={reviewContext}
                   onExit={handleLessonExit}
               />
             ) : (
               <StartScreen 
-                  // セッション状態
                   activeSession={session.activeSession}
                   viewingSession={session.viewingSession}
                   isDailyLimitReached={session.activeSession > MAX_DAILY_SESSIONS}
-                  
-                  // 設定状態
                   learningMode={learningMode} setLearningMode={setLearningMode}
                   selectedUnit={selectedUnit} setSelectedUnit={setSelectedUnit}
                   difficulty={difficulty} setDifficulty={setDifficulty}
-                  
-                  // アクションハンドラ
                   onStartLesson={handleStartGeneral}
                   onResumeLesson={handleResume}
                   onStartReview={handleStartReview}
-                  
                   isProcessing={false} 
                   historyMeta={session.historyMeta}
                   onSwitchSession={session.switchSession}
-                  
                   onRegenerate={handleRegenerate}
                   regenCount={regenCount}
                   onLogout={handleLogout}
@@ -221,7 +201,7 @@ const App = () => {
             />
         )}
         
-        {/* ボトムナビゲーション (学習中以外のみ表示) */}
+        {/* ボトムナビゲーション */}
         {(step === 'start') && (
           <Paper 
             sx={{ 
@@ -258,6 +238,15 @@ const App = () => {
           </Paper>
         )}
       </Container>
+    );
+  };
+
+  // --- Root Render ---
+  // ★重要: ここで ThemeProvider を一番外側に配置し、すべてをラップする
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      {renderContent()}
     </ThemeProvider>
   );
 };

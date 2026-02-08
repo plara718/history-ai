@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { 
   Play, RotateCcw, Zap, BookOpen, GraduationCap, School, Settings, LogOut, CheckCircle,
-  Activity // HealthAndSafety の代わり (lucide-reactのバージョン差異対策)
+  Activity 
 } from 'lucide-react';
 import { TEXTBOOK_UNITS, DIFFICULTY_DESCRIPTIONS } from '../lib/constants';
 import { getReviewStrategy } from '../lib/reviewStrategy';
@@ -18,9 +18,9 @@ const StartScreen = ({
   difficulty, setDifficulty,
   
   // App.jsx から渡されるハンドラ
-  onStartLesson,       // 通常学習開始 (generateDailyLesson)
-  onResumeLesson,      // 再開 (onResume)
-  onStartReview,       // 復習開始 (startWeaknessReview)
+  onStartLesson,       
+  onResumeLesson,      
+  onStartReview,       
   
   isProcessing, historyMeta, onSwitchSession,
   onRegenerate, regenCount,
@@ -28,20 +28,17 @@ const StartScreen = ({
 }) => {
   
   const isSchool = learningMode === 'school';
-  const themeColor = isSchool ? 'success' : 'primary'; // MUIカラー名に修正
+  const themeColor = isSchool ? 'success' : 'primary';
   
   const currentSessionMeta = historyMeta[viewingSession] || {};
   const isViewingCompleted = !!currentSessionMeta.completed;
   const isViewingExists = !!currentSessionMeta.exists;
 
-  // 現在選択されている難易度の説明
   const currentDifficultyDesc = DIFFICULTY_DESCRIPTIONS[learningMode]?.[difficulty]?.desc || "設定に合わせてAIが調整します";
 
-  // 復習戦略の状態管理
   const [reviewStrategy, setReviewStrategy] = useState(null);
   const [loadingStrategy, setLoadingStrategy] = useState(true);
 
-  // 初回ロード時に復習戦略を取得
   useEffect(() => {
     const fetchStrategy = async () => {
       if (!userId) return;
@@ -58,7 +55,6 @@ const StartScreen = ({
     fetchStrategy();
   }, [userId]);
 
-  // 復習ボタンクリック時のハンドラ wrapper
   const handleReviewStart = () => {
     if (reviewStrategy && onStartReview) {
       onStartReview(reviewStrategy);
@@ -92,7 +88,7 @@ const StartScreen = ({
           </Stack>
       </Box>
 
-      {/* 復習レコメンドカード (通常学習の未完了時のみ表示) */}
+      {/* 復習レコメンドカード */}
       {!isViewingExists && !isDailyLimitReached && (
         <Box sx={{ mb: 4 }}>
           {loadingStrategy ? (
@@ -102,8 +98,8 @@ const StartScreen = ({
               <Card 
                 elevation={0}
                 sx={{ 
-                  borderRadius: 4, 
-                  background: 'linear-gradient(135deg, #FFF1F2 0%, #FFE4E6 100%)', // Rose gradient
+                  borderRadius: 2, // ★修正済み: 4だと丸すぎるので2に変更
+                  background: 'linear-gradient(135deg, #FFF1F2 0%, #FFE4E6 100%)', 
                   border: '1px solid #FECDD3',
                   position: 'relative', overflow: 'visible'
                 }}
@@ -129,7 +125,6 @@ const StartScreen = ({
                   </Typography>
                   
                   <Stack direction="row" spacing={1} alignItems="center">
-                     {/* タグ名表示 (IDからラベルへの変換は省略し、簡易表示) */}
                      <Chip 
                        label={reviewStrategy.target_era_label || reviewStrategy.target_era} 
                        size="small" 
@@ -171,7 +166,6 @@ const StartScreen = ({
            const isActive = num === viewingSession;
            const isFuture = num > activeSession && !meta.exists;
            
-           // スタイルクラスの決定 (Tailwind + inline style)
            let btnClass = "relative w-16 h-16 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 ";
            if (isActive) {
              btnClass += isSchool 

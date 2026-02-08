@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, Card, CardContent, Typography, TextField, Button, 
   CircularProgress, Alert, Divider, Paper, Chip, Stack,
@@ -12,7 +12,7 @@ import {
   Lightbulb as LightbulbIcon,
   Edit as EditIcon
 } from '@mui/icons-material';
-import { SafeMarkdown } from '../components/SafeMarkdown';
+import { SafeMarkdown } from './SafeMarkdown'; // パス調整
 import { useLessonGrader } from '../hooks/useLessonGrader';
 import { scrollToTop } from '../lib/utils';
 
@@ -22,7 +22,7 @@ import { scrollToTop } from '../lib/utils';
  */
 export const EssaySection = ({ 
   apiKey, 
-  userId, // useLessonGraderのために必要
+  userId, 
   lessonData, 
   learningMode, 
   initialDraft, 
@@ -35,7 +35,7 @@ export const EssaySection = ({
   // カスタムフック (userIdを追加)
   const { gradeLesson, isGrading, gradeError } = useLessonGrader(apiKey, userId);
   
-  const essayData = lessonData?.essay || {};
+  const essayData = lessonData?.content?.essay || {}; // データ構造の深さに対応
   const wordLimit = learningMode === 'school' ? 80 : 150;
   
   // 文字数に応じたプログレスバー計算
@@ -74,11 +74,23 @@ export const EssaySection = ({
     if (!userAnswer.trim()) return;
     
     // 採点実行
+    // gradeLessonの実装依存だが、通常は (lessonData, userAnswer, mode) を渡す
     const gradingResult = await gradeLesson(lessonData, userAnswer, learningMode);
     
     if (gradingResult) {
-      setResult(gradingResult);
-      // 結果確定時にも保存（念のため）
+      // ランク(S/A/B/C)からスコア(10点満点)への変換 (もしスコアがなければ)
+      let score = gradingResult.score;
+      if (score === undefined && gradingResult.rank) {
+         if (gradingResult.rank === 'S') score = 10;
+         else if (gradingResult.rank === 'A') score = 8;
+         else if (gradingResult.rank === 'B') score = 6;
+         else score = 4;
+      }
+      
+      const finalResult = { ...gradingResult, score: score || 0 };
+      setResult(finalResult);
+      
+      // 結果確定時にも保存
       if (onDraftChange) onDraftChange(userAnswer);
     }
   };
@@ -87,6 +99,7 @@ export const EssaySection = ({
   const handleGiveUp = () => {
     const mockResult = {
       score: 0,
+      rank: 'C',
       correction: `
 ### 🏳️ ギブアップ (Model Answer)
 今回は回答をスキップしました。まずは模範解答を読んで、構成をインプットしましょう！
@@ -99,7 +112,7 @@ export const EssaySection = ({
 - 模範解答を書き写し、因果の流れを確認しましょう。
       `, 
       overall_comment: "記述問題は「型」を覚えることが近道です。模範解答の因果関係（A→B）を意識して書き写してみましょう。",
-      tags: ["err_basic_fact"], // デフォルトのタグ
+      tags: ["err_basic_fact"], 
       recommended_action: "模範解答を書き写し、因果の流れを確認しましょう。"
     };
     setResult(mockResult);
@@ -110,14 +123,16 @@ export const EssaySection = ({
     if (onFinish) {
       onFinish({ 
         score: result ? result.score : 0,
-        // AIが推奨アクションを返していればそれを使う
-        recommended_action: result ? result.recommended_action : null 
+        rank: result ? result.rank : 'C', // ランクも渡す
+        recommended_action: result ? result.recommended_action : null,
+        // 採点結果全体も渡しておく (SummaryScreenなどで使うかも)
+        gradingResult: result 
       });
     }
   };
 
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto', p: { xs: 2, md: 4 } }}>
+    <Box sx={{ maxWidth: 800, mx: 'auto', p: { xs: 2, md: 0 } }}>
       <Fade in={true} timeout={800}>
         <Card 
           elevation={0} 
@@ -125,7 +140,7 @@ export const EssaySection = ({
             borderRadius: 4, 
             border: '1px solid', 
             borderColor: 'divider',
-            overflow: 'visible' // バッジ等がはみ出せるように
+            overflow: 'visible' 
           }}
         >
           <CardContent sx={{ p: { xs: 3, md: 5 } }}>
@@ -228,10 +243,11 @@ export const EssaySection = ({
                         borderRadius: 3, 
                         fontWeight: 'bold',
                         fontSize: '1.1rem',
-                        background: (theme) => isGrading ? theme.palette.action.disabled : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-                        boxShadow: '0 8px 16px -4px rgba(79, 70, 229, 0.3)',
+                        // isGrading時はdisabledカラー、通常時はグラデーション
+                        background: (theme) => isGrading ? undefined : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                        boxShadow: isGrading ? 'none' : '0 8px 16px -4px rgba(79, 70, 229, 0.3)',
                         transition: 'transform 0.2s',
-                        '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 12px 20px -6px rgba(79, 70, 229, 0.4)' }
+                        '&:hover': { transform: isGrading ? 'none' : 'translateY(-2px)', boxShadow: isGrading ? 'none' : '0 12px 20px -6px rgba(79, 70, 229, 0.4)' }
                       }}
                   >
                       {isGrading ? 'AI先生が採点中...' : '回答を提出する'}
@@ -260,32 +276,32 @@ export const EssaySection = ({
               /* --- 結果表示モード --- */
               <Box className="animate-fadeIn">
                 
-                {/* スコアバッジ */}
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
-                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                {/* スコア表示 (Circular Progress) */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4, position: 'relative', height: 120 }}>
                     <CircularProgress 
                       variant="determinate" 
                       value={100} 
                       size={120} 
                       thickness={4} 
-                      sx={{ color: 'grey.100' }} 
+                      sx={{ color: 'grey.100', position: 'absolute' }} 
                     />
                     <CircularProgress 
                       variant="determinate" 
-                      value={result.score * 10} 
+                      value={Math.min(result.score * 10, 100)} // 10点満点 -> 100%
                       size={120} 
                       thickness={4} 
                       sx={{ 
                         color: result.score >= 8 ? 'success.main' : result.score >= 5 ? 'warning.main' : 'error.main',
                         position: 'absolute',
-                        left: 0,
+                        left: '50%',
+                        marginLeft: '-60px', // size/2
                         strokeLinecap: 'round'
                       }} 
                     />
                     <Box
                       sx={{
-                        top: 0, left: 0, bottom: 0, right: 0,
                         position: 'absolute',
+                        top: 0, left: 0, bottom: 0, right: 0,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexDirection: 'column'
                       }}
@@ -299,7 +315,6 @@ export const EssaySection = ({
                         {result.score}<span style={{fontSize: '1rem', color:'#9ca3af'}}>/10</span>
                       </Typography>
                     </Box>
-                  </Box>
                 </Box>
 
                 <Divider sx={{ my: 4 }}>

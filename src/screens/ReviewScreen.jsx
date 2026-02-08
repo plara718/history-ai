@@ -6,11 +6,9 @@ import {
 import { 
   CheckCircle, 
   Cancel,
-  Warning as AlertTriangle, 
   ChevronRight, 
   ArrowForward as ArrowRight, 
-  Check as CheckIcon,
-  Close as CloseIcon
+  Check as CheckIcon
 } from '@mui/icons-material';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 
@@ -30,9 +28,9 @@ const ReviewScreen = ({
   const currentQ = reviewProblems[qIndex];
   const totalQ = reviewProblems.length;
   
-  // 問題タイプ判定
-  const isSort = currentQ.type === 'sort';
-  const isTF = currentQ.type === 'tf' || currentQ.type === 'true_false' || !isSort; // デフォルトはTF
+  // 問題タイプ判定 (データ構造の揺らぎに対応)
+  const isSort = currentQ.type === 'sort' || (currentQ.items && currentQ.items.length > 0);
+  const isTF = !isSort;
   
   // 整序問題用アイテム
   const items = currentQ.items || [];
@@ -46,17 +44,18 @@ const ReviewScreen = ({
   const handleSortToggle = (itemIndex) => {
     if (isAnswered) return;
     
-    const currentOrder = Array.isArray(reviewUserAnswer) ? reviewUserAnswer : [];
-    let newOrder;
+    // 現在の回答配列を取得 (初期値がnullなら空配列)
+    const currentOrder = Array.isArray(reviewUserAnswer) ? [...reviewUserAnswer] : [];
     
     if (currentOrder.includes(itemIndex)) {
       // 選択解除
-      newOrder = currentOrder.filter(i => i !== itemIndex);
+      const newOrder = currentOrder.filter(i => i !== itemIndex);
+      setReviewUserAnswer(newOrder);
     } else {
       // 選択追加
-      newOrder = [...currentOrder, itemIndex];
+      const newOrder = [...currentOrder, itemIndex];
+      setReviewUserAnswer(newOrder);
     }
-    setReviewUserAnswer(newOrder);
   };
 
   // 正誤問題: 回答送信
@@ -67,7 +66,7 @@ const ReviewScreen = ({
   };
 
   return (
-    <Container maxWidth="sm" sx={{ pb: 10, pt: 2 }}>
+    <Container maxWidth="sm" sx={{ pb: 10, pt: 2 }} className="animate-fade-in">
        <Box mb={4} textAlign="center">
           <Typography variant="overline" fontWeight="bold" color="text.secondary" letterSpacing={1.5}>
               WEAKNESS DRILL {qIndex + 1} / {totalQ}
@@ -77,11 +76,12 @@ const ReviewScreen = ({
           </Typography>
       </Box>
 
+      {/* 問題カード */}
       <Paper 
         elevation={0} 
         sx={{ 
           p: { xs: 3, sm: 4 }, 
-          borderRadius: 4, 
+          borderRadius: 3, // デザイン統一: 4->3
           bgcolor: 'white', 
           border: '1px solid', 
           borderColor: 'divider', 
@@ -107,14 +107,15 @@ const ReviewScreen = ({
                   <Button
                       fullWidth
                       variant={isAnswered && reviewUserAnswer === true ? "contained" : "outlined"}
-                      color={isAnswered ? (currentQ.correct === 0 ? "success" : "error") : "primary"}
+                      // 正解なら緑、不正解なら赤
+                      color={isAnswered ? (reviewResult ? "success" : "error") : "primary"}
                       onClick={() => handleTFSubmit(true)}
                       disabled={isAnswered}
-                      startIcon={isAnswered && currentQ.correct === 0 ? <CheckIcon /> : null}
+                      startIcon={isAnswered && reviewUserAnswer === true ? (reviewResult ? <CheckCircle/> : <Cancel/>) : null}
                       sx={{ 
                           py: 2, borderRadius: 3, 
                           fontSize: '1.1rem', fontWeight: 'bold',
-                          borderWidth: isAnswered ? 0 : 2,
+                          borderWidth: 2,
                           '&:hover': { borderWidth: 2 }
                       }}
                   >
@@ -125,16 +126,17 @@ const ReviewScreen = ({
                   <Button
                       fullWidth
                       variant={isAnswered && reviewUserAnswer === false ? "contained" : "outlined"}
-                      color={isAnswered ? (currentQ.correct === 1 ? "success" : "error") : "error"}
+                      color={isAnswered ? (reviewResult ? "success" : "error") : "error"}
                       onClick={() => handleTFSubmit(false)}
                       disabled={isAnswered}
-                      startIcon={isAnswered && currentQ.correct === 1 ? <CheckIcon /> : null}
+                      startIcon={isAnswered && reviewUserAnswer === false ? (reviewResult ? <CheckCircle/> : <Cancel/>) : null}
                       sx={{ 
                           py: 2, borderRadius: 3, 
                           fontSize: '1.1rem', fontWeight: 'bold',
-                          borderWidth: isAnswered ? 0 : 2,
-                          borderColor: isAnswered ? undefined : 'error.main',
-                          color: isAnswered ? undefined : 'error.main',
+                          borderWidth: 2,
+                          // 未回答時は赤枠、回答済みなら結果色
+                          borderColor: !isAnswered ? 'error.main' : undefined,
+                          color: !isAnswered ? 'error.main' : undefined,
                           '&:hover': { borderWidth: 2, bgcolor: 'error.50' }
                       }}
                   >
@@ -150,26 +152,27 @@ const ReviewScreen = ({
                     bgcolor="grey.50" borderRadius={3} 
                     border="1px dashed" borderColor="grey.300"
                     minHeight={80} 
-                    display="flex" flexWrap="wrap" gap={1} alignItems="center"
                   >
                       {(!reviewUserAnswer || reviewUserAnswer.length === 0) && (
-                          <Typography variant="body2" color="text.disabled" width="100%" textAlign="center">
+                          <Typography variant="body2" color="text.disabled" width="100%" textAlign="center" py={2}>
                             下の選択肢を順番にタップしてください
                           </Typography>
                       )}
                       
-                      {(reviewUserAnswer || []).map((itemIndex, i) => (
-                          <Box key={i} display="flex" alignItems="center">
-                              {i > 0 && <ArrowRight fontSize="small" sx={{ color: 'text.disabled', mx: 0.5 }} />}
-                              <Chip 
-                                label={`${String.fromCharCode(65 + itemIndex)}. ${items[itemIndex]}`}
-                                onDelete={!isAnswered ? () => handleSortToggle(itemIndex) : undefined}
-                                color="primary" 
-                                variant="filled"
-                                sx={{ fontWeight: 'bold' }}
-                              />
-                          </Box>
-                      ))}
+                      <Box display="flex" flexWrap="wrap" gap={1} alignItems="center">
+                        {(reviewUserAnswer || []).map((itemIndex, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && <ArrowRight fontSize="small" sx={{ color: 'text.disabled' }} />}
+                                <Chip 
+                                  label={`${String.fromCharCode(65 + itemIndex)}. ${items[itemIndex]}`}
+                                  onDelete={!isAnswered ? () => handleSortToggle(itemIndex) : undefined}
+                                  color="primary" 
+                                  variant="filled"
+                                  sx={{ fontWeight: 'bold' }}
+                                />
+                            </React.Fragment>
+                        ))}
+                      </Box>
                   </Box>
 
                   {/* 候補エリア (Candidates) */}
@@ -181,20 +184,22 @@ const ReviewScreen = ({
                                 <Button
                                     fullWidth
                                     variant={isSelected ? "contained" : "outlined"}
-                                    color={isSelected ? "grey" : "primary"}
+                                    // 選択済みならグレーアウト
+                                    color={isSelected ? "inherit" : "primary"}
                                     onClick={() => handleSortToggle(i)} 
                                     disabled={isAnswered || isSelected}
                                     sx={{ 
                                       justifyContent: 'flex-start',
                                       py: 1.5, px: 2, borderRadius: 2, 
                                       fontWeight: 'bold', textTransform: 'none',
-                                      bgcolor: isSelected ? 'action.disabledBackground' : 'white'
+                                      bgcolor: isSelected ? 'action.disabledBackground' : 'white',
+                                      borderColor: isSelected ? 'transparent' : 'divider'
                                     }}
                                 >
-                                    <Typography variant="caption" sx={{ mr: 1, fontWeight: 'bold', minWidth: 20 }}>
+                                    <Typography variant="caption" sx={{ mr: 1, fontWeight: 'bold', minWidth: 20, color: 'text.secondary' }}>
                                       {String.fromCharCode(65 + i)}.
                                     </Typography>
-                                    <Typography variant="body2" noWrap>
+                                    <Typography variant="body2" noWrap color="text.primary">
                                       {item}
                                     </Typography>
                                 </Button>
@@ -233,7 +238,7 @@ const ReviewScreen = ({
 
               <Paper elevation={0} sx={{ p: 3, borderRadius: 3, bgcolor: '#f8fafc', border: '1px solid', borderColor: '#e2e8f0', mb: 4 }}>
                   
-                  {/* 整序問題の正解表示 */}
+                  {/* 整序問題の正解表示 (不正解時のみ) */}
                   {isSort && !reviewResult && currentQ.correct_order && (
                       <Box mb={3} p={2} bgcolor="white" borderRadius={2} border="1px solid" borderColor="success.light">
                            <Typography variant="caption" display="block" color="success.main" fontWeight="bold" mb={1}>
@@ -254,7 +259,7 @@ const ReviewScreen = ({
                       </Box>
                   )}
                   
-                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="text.secondary" sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                       💡 解説・ポイント
                   </Typography>
                   <Divider sx={{ mb: 2 }} />

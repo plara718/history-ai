@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Card, CardContent, Typography, Button, IconButton, 
-  List, ListItem, ListItemText, ListItemSecondaryAction, 
+  List, ListItem, ListItemText, 
   Chip, Collapse, Grid, Paper, Fade, Stack 
 } from '@mui/material';
 import { 
@@ -14,7 +14,7 @@ import {
   HelpOutline as QuestionIcon,
   SwapVert as SortIcon
 } from '@mui/icons-material';
-import { SafeMarkdown } from '../components/SafeMarkdown';
+import { SafeMarkdown } from './SafeMarkdown'; // パス調整
 import { scrollToTop } from '../lib/utils';
 
 /**
@@ -30,6 +30,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
       ...q, 
       type: 'tf',
       // AI生成データの揺らぎ吸収: correctが数値でない場合のフォールバック
+      // 0: True(正しい), 1: False(誤り)
       correctIndex: typeof q.correct === 'number' ? q.correct : 0 
     }));
     
@@ -37,7 +38,8 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
     const sortList = (lessonData.content.sort || []).map(q => ({ 
       ...q, 
       type: 'sort',
-      correctOrder: q.correct_order || q.items.map((_, i) => i) 
+      // correct_orderがない場合は[0,1,2...]を正解とする
+      correctOrder: q.correct_order || (q.items ? q.items.map((_, i) => i) : [])
     }));
     
     return [...tfList, ...sortList];
@@ -78,9 +80,11 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
     const newResultLog = [
       ...resultsLog,
       {
+        q: currentQuestion.q,
         is_correct: isCorrect,
         tags: [currentQuestion.intention_tag], // 統計用タグ
-        question_type: currentQuestion.type
+        question_type: currentQuestion.type,
+        exp: currentQuestion.exp
       }
     ];
     setResultsLog(newResultLog);
@@ -103,6 +107,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
       setIsCorrect(false);
       setUserSortOrder(null);
       setCurrentIndex(prev => prev + 1);
+      scrollToTop();
     }
   };
 
@@ -130,7 +135,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
             <Stack direction="row" alignItems="center" spacing={1}>
                {currentQuestion.type === 'tf' ? <QuestionIcon fontSize="small" color="action"/> : <SortIcon fontSize="small" color="action"/>}
                <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                 {currentQuestion.type === 'tf' ? '正誤判定 (True/False)' : '歴史整序 (Timeline)'}
+                 {currentQuestion.type === 'tf' ? '正誤判定' : '歴史整序'}
                </Typography>
             </Stack>
           </Box>
@@ -196,7 +201,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
                   </Typography>
                 </Box>
 
-                {/* 整序比較エリア (間違った場合のみ表示、または正解でも確認用に表示) */}
+                {/* 整序比較エリア (間違った場合、または正解確認用) */}
                 {currentQuestion.type === 'sort' && userSortOrder && (
                   <Paper 
                     elevation={0} 
@@ -262,7 +267,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
                     boxShadow: 3
                   }}
                 >
-                  {isLastQuestion ? '記述問題（Essay）へ挑戦' : '次の問題へ'}
+                  {isLastQuestion ? '記述問題へ挑戦' : '次の問題へ'}
                 </Button>
               </Box>
             </Collapse>
@@ -273,15 +278,14 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
   );
 };
 
-/**
- * サブコンポーネント: 正誤問題フォーム
- */
+// --- Sub Components ---
+
 const TrueFalseQuestion = ({ question, onAnswer }) => {
-  // 選択肢インデックスで判定 (0=True, 1=False が一般的だが、options配列の順序に依存)
-  // utils.jsの生成ロジックでは options: ["True", "False"] となり、correct: 0 (True) または 1 (False)
-  
-  const handleSelect = (selectedIndex) => {
-    const isCorrect = selectedIndex === question.correctIndex;
+  // 0: True(正しい), 1: False(誤り) と仮定
+  // ユーザーが「正しい」を選んだら 0 を渡す
+  const handleSelect = (selectedVal) => {
+    // selectedVal: 0 or 1
+    const isCorrect = selectedVal === question.correctIndex;
     onAnswer(isCorrect);
   };
 
@@ -299,7 +303,7 @@ const TrueFalseQuestion = ({ question, onAnswer }) => {
           '&:hover': { borderWidth: '2px', bgcolor: 'primary.50', transform: 'translateY(-2px)' }
         }}
       >
-        ⭕ 正しい (True)
+        ⭕ 正しい
       </Button>
       <Button
         variant="outlined"
@@ -313,33 +317,31 @@ const TrueFalseQuestion = ({ question, onAnswer }) => {
           '&:hover': { borderWidth: '2px', bgcolor: 'error.50', transform: 'translateY(-2px)' }
         }}
       >
-        ❌ 誤り (False)
+        ❌ 誤り
       </Button>
     </Stack>
   );
 };
 
-/**
- * サブコンポーネント: 整序問題フォーム
- */
 const SortQuestion = ({ question, onAnswer }) => {
-  // 初期状態: 0,1,2,3... (AI生成順、つまりランダム順になっている前提)
-  // ただしutils.jsでitemsがシャッフルされていない場合を考慮し、
-  // ここでは初期表示をシャッフルすべきだが、AIが生成時にシャッフル済みと仮定する
+  // 初期表示用にシャッフル済みの配列を作るか、0,1,2...で表示するか
+  // ここでは items の並び順（通常はシャッフル済み）をそのまま使う: 0, 1, 2...
   const [order, setOrder] = useState(question.items.map((_, i) => i));
 
   const moveItem = (currentIndex, direction) => {
-    const newOrder = [...order];
-    const targetIndex = currentIndex + direction;
-    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
-    
-    // Swap
-    [newOrder[currentIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[currentIndex]];
-    setOrder(newOrder);
+    setOrder(prevOrder => {
+      const newOrder = [...prevOrder];
+      const targetIndex = currentIndex + direction;
+      if (targetIndex < 0 || targetIndex >= newOrder.length) return prevOrder;
+      
+      // Swap
+      [newOrder[currentIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[currentIndex]];
+      return newOrder;
+    });
   };
 
   const handleSubmit = () => {
-    // 配列の比較 (JSON文字列化が簡易)
+    // 正解配列(correctOrder)と比較
     const isCorrect = JSON.stringify(order) === JSON.stringify(question.correctOrder);
     onAnswer(isCorrect, order);
   };
@@ -360,10 +362,30 @@ const SortQuestion = ({ question, onAnswer }) => {
               transition: 'background-color 0.2s',
               '&:hover': { bgcolor: 'grey.50' }
             }}
+            secondaryAction={
+              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <IconButton 
+                  size="small" 
+                  disabled={listIndex === 0}
+                  onClick={() => moveItem(listIndex, -1)}
+                  sx={{ color: 'primary.main', p: 0.5 }}
+                >
+                  <ArrowUpIcon fontSize="small" />
+                </IconButton>
+                <IconButton 
+                  size="small"
+                  disabled={listIndex === order.length - 1}
+                  onClick={() => moveItem(listIndex, 1)}
+                  sx={{ color: 'primary.main', p: 0.5 }}
+                >
+                  <ArrowDownIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            }
           >
             <ListItemText 
               primary={
-                <Typography variant="body1" sx={{ fontWeight: 'medium', color: 'text.primary' }}>
+                <Typography variant="body1" sx={{ fontWeight: 'medium', color: 'text.primary', pr: 4 }}>
                   {question.items[itemIndex]}
                 </Typography>
               } 
@@ -373,24 +395,6 @@ const SortQuestion = ({ question, onAnswer }) => {
                 </Typography>
               }
             />
-            <ListItemSecondaryAction sx={{ display: 'flex', flexDirection: 'column' }}>
-              <IconButton 
-                size="small" 
-                disabled={listIndex === 0}
-                onClick={() => moveItem(listIndex, -1)}
-                sx={{ color: 'primary.main' }}
-              >
-                <ArrowUpIcon fontSize="small" />
-              </IconButton>
-              <IconButton 
-                size="small"
-                disabled={listIndex === order.length - 1}
-                onClick={() => moveItem(listIndex, 1)}
-                sx={{ color: 'primary.main' }}
-              >
-                <ArrowDownIcon fontSize="small" />
-              </IconButton>
-            </ListItemSecondaryAction>
           </ListItem>
         ))}
       </List>

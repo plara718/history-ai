@@ -18,21 +18,18 @@ export const SafeMarkdown = ({ content }) => {
         '& h1, & h2, & h3, & h4, & h5, & h6': { overflowWrap: 'break-word', lineHeight: 1.4 },
         '& p, & ul, & ol': { overflowWrap: 'break-word' },
         fontFamily: '"Noto Sans JP", "Helvetica", "Arial", sans-serif',
-        // リストのネスト対応
         '& ul ul, & ol ul, & ul ol, & ol ol': { mb: 0 }
       }}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 見出し (H1): インディゴの下線付き
+          // H1: インディゴの下線
           h1: ({node, ...props}) => (
             <Typography 
-              variant="h5" 
-              component="h1"
+              variant="h5" component="h1"
               sx={{ 
-                fontWeight: 800, 
-                mt: 4, mb: 2, pb: 1,
+                fontWeight: 800, mt: 4, mb: 2, pb: 1,
                 color: 'primary.dark',
                 borderBottom: '2px solid',
                 borderColor: (theme) => alpha(theme.palette.primary.main, 0.2),
@@ -41,14 +38,12 @@ export const SafeMarkdown = ({ content }) => {
               {...props} 
             />
           ),
-          // 見出し (H2): シンプルな下線
+          // H2: シンプルな下線
           h2: ({node, ...props}) => (
             <Typography 
-              variant="h6" 
-              component="h2"
+              variant="h6" component="h2"
               sx={{ 
-                fontWeight: 700, 
-                mt: 3, mb: 2, pb: 1,
+                fontWeight: 700, mt: 3, mb: 2, pb: 1,
                 color: 'text.primary',
                 borderBottom: '1px solid',
                 borderColor: 'divider',
@@ -57,134 +52,85 @@ export const SafeMarkdown = ({ content }) => {
               {...props} 
             />
           ),
-          // 見出し (H3): 左線アクセントと背景
+          // H3: 左線アクセント
           h3: ({node, ...props}) => (
             <Box 
               component="h3"
               sx={{ 
-                fontSize: '1rem',
-                fontWeight: 700, 
-                mt: 3, mb: 1.5, 
-                pl: 2, py: 0.5,
+                fontSize: '1rem', fontWeight: 700, mt: 3, mb: 1.5, pl: 2, py: 0.5,
                 borderLeft: '4px solid',
                 borderColor: 'primary.main',
                 bgcolor: (theme) => alpha(theme.palette.primary.main, 0.05),
                 color: 'primary.dark',
-                borderRadius: '0 4px 4px 0'
+                borderRadius: '0 4px 4px 0' // ここは固定値なのでOK
               }} 
               {...props} 
             />
           ),
-          
-          // 太字 (**text**): 蛍光マーカー風
+          // 太字: 蛍光マーカー風
           strong: ({node, ...props}) => (
             <Box 
               component="strong"
               sx={{ 
-                fontWeight: 700,
-                color: 'text.primary',
+                fontWeight: 700, color: 'text.primary',
                 background: 'linear-gradient(transparent 60%, rgba(255, 235, 59, 0.6) 60%)',
-                px: 0.5,
-                borderRadius: '2px'
+                px: 0.5, borderRadius: '2px'
               }} 
               {...props} 
             />
           ),
-
-          // 段落 (p)
+          // 段落
           p: ({node, ...props}) => (
             <Typography 
-              variant="body1" 
-              component="p"
-              sx={{ 
-                mb: 2, 
-                lineHeight: 1.8, 
-                color: 'text.secondary',
-                fontSize: '0.95rem'
-              }} 
+              variant="body1" component="p"
+              sx={{ mb: 2, lineHeight: 1.8, color: 'text.secondary', fontSize: '0.95rem' }} 
               {...props} 
             />
           ),
-
-          // リスト (ul/ol)
+          // リスト
           ul: ({node, ...props}) => (
-            <Box 
-              component="ul" 
-              sx={{ 
-                pl: 3, mb: 2, 
-                listStyleType: 'disc',
-                '& li': { mb: 0.5, pl: 0.5 }
-              }} 
-              {...props} 
-            />
+            <Box component="ul" sx={{ pl: 3, mb: 2, listStyleType: 'disc', '& li': { mb: 0.5, pl: 0.5 } }} {...props} />
           ),
           ol: ({node, ...props}) => (
-            <Box 
-              component="ol" 
-              sx={{ 
-                pl: 3, mb: 2, 
-                listStyleType: 'decimal',
-                '& li': { mb: 0.5, pl: 0.5 }
-              }} 
-              {...props} 
-            />
+            <Box component="ol" sx={{ pl: 3, mb: 2, listStyleType: 'decimal', '& li': { mb: 0.5, pl: 0.5 } }} {...props} />
           ),
           li: ({node, ...props}) => (
             <li style={{ lineHeight: 1.7, color: '#475569' }} {...props} />
           ),
-
-          // 引用 (blockquote)
+          // 引用
           blockquote: ({node, ...props}) => (
             <Box 
               component="blockquote"
               sx={{ 
-                borderLeft: '4px solid',
-                borderColor: 'grey.300',
-                pl: 2, py: 1, my: 3,
-                bgcolor: 'grey.50',
-                color: 'text.secondary',
-                fontStyle: 'italic',
+                borderLeft: '4px solid', borderColor: 'grey.300',
+                pl: 2, py: 1, my: 3, bgcolor: 'grey.50',
+                color: 'text.secondary', fontStyle: 'italic',
                 borderRadius: '0 4px 4px 0'
               }} 
               {...props} 
             />
           ),
-          
-          // インラインコード (`code`)
+          // コードブロック & インラインコード
           code: ({node, inline, className, children, ...props}) => {
             const match = /language-(\w+)/.exec(className || '');
             return !inline && match ? (
-              // ブロックコード (簡易表示)
               <Box 
                 component="pre" 
                 sx={{ 
-                  bgcolor: '#1e293b', 
-                  color: '#f8fafc', 
-                  p: 2, 
-                  borderRadius: 2, 
-                  overflowX: 'auto', 
-                  mb: 3, 
-                  fontSize: '0.85em',
-                  fontFamily: 'monospace'
+                  bgcolor: '#1e293b', color: '#f8fafc', p: 2, 
+                  borderRadius: '12px', // ★ここを固定値に変更 (テーマ影響で丸くなりすぎるのを防ぐ)
+                  overflowX: 'auto', mb: 3, fontSize: '0.85em', fontFamily: 'monospace'
                 }}
               >
-                <code className={className} {...props}>
-                  {children}
-                </code>
+                <code className={className} {...props}>{children}</code>
               </Box>
             ) : (
-              // インラインコード
               <Box 
                 component="code" 
                 sx={{ 
-                  bgcolor: 'grey.100', 
-                  color: '#d32f2f', 
-                  px: 0.6, py: 0.2, 
-                  borderRadius: 1, 
-                  fontSize: '0.85em',
-                  fontFamily: 'monospace',
-                  fontWeight: 'bold',
-                  mx: 0.5
+                  bgcolor: 'grey.100', color: '#d32f2f', px: 0.6, py: 0.2, 
+                  borderRadius: '6px', // ★ここも少し控えめに
+                  fontSize: '0.85em', fontFamily: 'monospace', fontWeight: 'bold', mx: 0.5
                 }} 
                 {...props}
               >
@@ -192,26 +138,17 @@ export const SafeMarkdown = ({ content }) => {
               </Box>
             );
           },
-
           // リンク
           a: ({node, ...props}) => (
-            <Link 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              underline="hover"
-              sx={{ color: 'primary.main', fontWeight: 600 }} 
-              {...props} 
-            />
+            <Link target="_blank" rel="noopener noreferrer" underline="hover" sx={{ color: 'primary.main', fontWeight: 600 }} {...props} />
           ),
-          
           // 水平線
           hr: ({node, ...props}) => (
             <Divider sx={{ my: 4 }} {...props} />
           ),
-
-          // テーブル (簡易対応)
+          // テーブル
           table: ({node, ...props}) => (
-            <Box sx={{ overflowX: 'auto', mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <Box sx={{ overflowX: 'auto', mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}> {/* ★固定値に変更 */}
                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }} {...props} />
             </Box>
           ),

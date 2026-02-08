@@ -69,8 +69,6 @@ export const LessonScreen = ({
           // --- パターンB: データがない ---
           
           // ★ ガード処理: 過去のセッションなら生成しない
-          // もし過去のセッション(sessionNum < currentProgress)なのにデータが無いなら、
-          // それは「未実施」ではなく「データエラー」として扱う
           if (currentProgress && sessionNum < currentProgress) {
              console.warn("過去データの読み込みに失敗しました。生成は行いません。");
              setErrorMsg("このセッションの学習データが見つかりませんでした。");
@@ -133,7 +131,6 @@ export const LessonScreen = ({
   const handleNextQuiz = () => {
     const currentQ = lessonData.content.true_false[quizIndex];
     const userAns = userQuizAnswers[quizIndex];
-    // correctが0ならTrueが正解、1ならFalseが正解という前提
     const isCorrect = (userAns === (currentQ.correct === 0)); 
     
     const result = {
@@ -188,7 +185,7 @@ export const LessonScreen = ({
     return <SmartLoader message="AIが授業を準備中..." />;
   }
 
-  // ★ エラー表示画面 (データなし/生成失敗時)
+  // ★ エラー表示画面
   if (step === 'error') {
     return (
       <Container maxWidth="sm" className="animate-fade-in" sx={{ py: 10, textAlign: 'center' }}>
@@ -223,7 +220,8 @@ export const LessonScreen = ({
           </Typography>
         </Box>
 
-        <Paper elevation={0} sx={{ p: { xs: 2, sm: 4 }, borderRadius: 4, bgcolor: 'white', border: '1px solid', borderColor: 'divider', mb: 4 }}>
+        {/* デザイン修正: borderRadiusを4から3に変更 */}
+        <Paper elevation={0} sx={{ p: { xs: 2, sm: 4 }, borderRadius: 3, bgcolor: 'white', border: '1px solid', borderColor: 'divider', mb: 4 }}>
           <SafeMarkdown content={lessonData.content.lecture} />
         </Paper>
 
@@ -250,13 +248,15 @@ export const LessonScreen = ({
       <Container maxWidth="sm" className="animate-fade-in" sx={{ py: 4 }}>
         <Stack spacing={3}>
            <Box>
-             <LinearProgress variant="determinate" value={progress} sx={{ height: 8, borderRadius: 4, mb: 1 }} />
+             {/* デザイン修正: borderRadiusを4から2に変更 */}
+             <LinearProgress variant="determinate" value={progress} sx={{ height: 8, borderRadius: 2, mb: 1 }} />
              <Typography variant="caption" color="text.secondary" fontWeight="bold">
                QUESTION {quizIndex + 1} / {questions.length}
              </Typography>
            </Box>
 
-           <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
+           {/* デザイン修正: borderRadiusを4から3に変更 */}
+           <Paper elevation={0} sx={{ p: 4, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
              <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.6 }}>
                {currentQ.q}
              </Typography>
@@ -307,7 +307,8 @@ export const LessonScreen = ({
           </Typography>
         </Box>
 
-        <Paper elevation={0} sx={{ p: 4, borderRadius: 4, mb: 4, border: '1px solid', borderColor: 'divider' }}>
+        {/* デザイン修正: borderRadiusを4から3に変更 */}
+        <Paper elevation={0} sx={{ p: 4, borderRadius: 3, mb: 4, border: '1px solid', borderColor: 'divider' }}>
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             {lessonData.content.essay.q}
           </Typography>

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Box, Container, Paper, Typography, Button, TextField, 
-  Divider, Chip, Stack, Alert, Snackbar, Card, CardContent 
+  Divider, Stack, Alert, Snackbar, Card, CardContent 
 } from '@mui/material';
 import { 
   ContentCopy as CopyIcon, 
@@ -10,21 +10,20 @@ import {
   EmojiEvents as TrophyIcon,
   EditNote as NoteIcon,
   Home as HomeIcon,
-  ArrowForward as ArrowIcon
+  ArrowForward as ArrowIcon // import漏れ防止
 } from '@mui/icons-material';
 
 export const SummaryScreen = ({ 
   lessonData, 
   gradingResult, 
-  quizResults, // [{is_correct, tags...}, ...] (正誤結果のみ)
+  quizResults, 
   onFinish 
 }) => {
   const [reflection, setReflection] = useState('');
   const [showToast, setShowToast] = useState(false);
 
-  // 1. データの結合と整理
-  // lessonDataの問題文と、quizResultsの結果をマージしてログを作成
-  const quizLog = React.useMemo(() => {
+  // 1. クイズログの生成
+  const quizLog = useMemo(() => {
     if (!lessonData || !lessonData.content) return [];
     
     const tfQuestions = lessonData.content.true_false || [];
@@ -42,54 +41,69 @@ export const SummaryScreen = ({
     });
   }, [lessonData, quizResults]);
 
-  // 2. スコア計算
+  // 2. スコア計算 (互換性維持)
   const quizCorrectCount = quizResults.filter(r => r.is_correct).length;
-  const quizTotalCount = quizResults.length;
-  const essayScore = gradingResult ? (gradingResult.score || 0) : 0;
+  const quizTotalCount = quizResults.length || 1;
+  
+  // 記述スコア: gradingResult.score がなければ rank から計算
+  let essayScore = 0;
+  if (gradingResult?.score) {
+    essayScore = gradingResult.score;
+  } else if (gradingResult?.rank) {
+    const r = gradingResult.rank;
+    if (r === 'S') essayScore = 10;
+    else if (r === 'A') essayScore = 8;
+    else if (r === 'B') essayScore = 6;
+    else essayScore = 4;
+  }
   
   // 総合スコア（100点満点換算：クイズ60点 + 記述40点）
   const totalScore = Math.round(
-    ((quizCorrectCount / (quizTotalCount || 1)) * 60) + (essayScore * 4)
+    ((quizCorrectCount / quizTotalCount) * 60) + ((essayScore / 10) * 40)
   );
 
-  // 3. NotebookLM用プロンプト生成
+  // 3. NotebookLM用テキスト生成
   const generateNotebookLMPrompt = () => {
     const dateStr = new Date().toLocaleString('ja-JP');
-    const theme = lessonData.content.theme;
+    const theme = lessonData?.content?.theme || '学習テーマ';
     
-    // クイズ結果のテキスト化
-    const quizDetailsText = quizLog.map((log, i) => {
-      return `
+    // クイズログ
+    const quizDetailsText = quizLog.map((log, i) => `
 Q${i+1}. ${log.q} [${log.type}]
 - 結果: ${log.isCorrect ? '✅ 正解' : '❌ 不正解'}
 - 解説: ${log.exp.replace(/\n/g, ' ')}
-      `.trim();
-    }).join('\n');
+    `.trim()).join('\n');
 
-    // 記述添削のテキスト化
-    const essayCorrection = gradingResult ? gradingResult.correction : "（記述回答なし）";
-    const essayAdvice = gradingResult ? gradingResult.overall_comment : "（アドバイスなし）";
+    // 記述フィードバック (データ構造の揺らぎを吸収)
+    const correction = gradingResult?.correction || gradingResult?.weak_point || "（特になし）";
+    const advice = gradingResult?.overall_comment || gradingResult?.advice || "（アドバイスなし）";
+    const goodPoint = gradingResult?.good_point ? `良い点: ${gradingResult.good_point}` : "";
 
     return `
 # 学習ログ: ${theme}
 
 ## 1. メタデータ
 - 日付: ${dateStr}
-- モード: ${lessonData.learningMode || 'Standard'} / ${lessonData.difficulty || 'Normal'}
+- モード: ${lessonData?.learningMode || 'Standard'} / ${lessonData?.difficulty || 'Normal'}
 - 総合スコア: ${totalScore}点 (Quiz: ${quizCorrectCount}/${quizTotalCount}, Essay: ${essayScore}/10)
+- 評価ランク: ${gradingResult?.rank || '-'}
 
 ## 2. 講義の要点（Strategic Essence）
-${lessonData.content.strategic_essence || '（データなし）'}
+${lessonData?.content?.strategic_essence || '（データなし）'}
 
 ## 3. 記述問題の振り返り（Essay Review）
 ### 問題
-${lessonData.content.essay ? lessonData.content.essay.q : '（問題なし）'}
+${lessonData?.content?.essay ? lessonData.content.essay.q : '（問題なし）'}
 
-### AIによる添削（劇的ビフォーアフター）
-${essayCorrection}
+### ユーザーの回答
+${gradingResult?.user_answer || '（回答データなし）'}
+
+### AIによるフィードバック
+${goodPoint}
+改善点: ${correction}
 
 ### AIからの戦略アドバイス
-${essayAdvice}
+${advice}
 
 ## 4. 演習問題ログ（Quiz Log）
 ${quizDetailsText}
@@ -99,7 +113,7 @@ ${reflection || '（記述なし）'}
 
 ---
 ## 参考：講義テキスト全文
-${lessonData.content.lecture}
+${lessonData?.content?.lecture || ''}
     `.trim();
   };
 
@@ -110,7 +124,6 @@ ${lessonData.content.lecture}
       setShowToast(true);
     } catch (err) {
       console.error('Copy failed', err);
-      // フォールバック（alert）
       alert('コピーに失敗しました。');
     }
   };
@@ -118,6 +131,10 @@ ${lessonData.content.lecture}
   const handleOpenNotebookLM = () => {
     window.open('https://notebooklm.google.com/', '_blank');
   };
+
+  // 表示用のアドバイス文言
+  const displayAdvice = gradingResult?.overall_comment || gradingResult?.advice || "素晴らしい取り組みです。解説をよく読んで復習しましょう。";
+  const displayNextAction = gradingResult?.nextAction || (gradingResult?.weak_point ? `弱点攻略: ${gradingResult.weak_point.substring(0, 20)}...` : null);
 
   return (
     <Container maxWidth="md" sx={{ py: 4, pb: 12 }} className="animate-fade-in">
@@ -128,7 +145,7 @@ ${lessonData.content.lecture}
           MISSION COMPLETE
         </Typography>
         <Typography variant="h4" fontWeight="900" sx={{ mb: 4, color: '#1e293b' }}>
-          {lessonData.content.theme}
+          {lessonData?.content?.theme || "学習完了"}
         </Typography>
         
         <Paper 
@@ -180,14 +197,14 @@ ${lessonData.content.lecture}
           </Stack>
           
           <Typography variant="body1" sx={{ lineHeight: 1.8, color: '#78350f', fontWeight: 'medium' }}>
-            {gradingResult?.overall_comment || "素晴らしい取り組みです。解説をよく読んで復習しましょう。"}
+            {displayAdvice}
           </Typography>
 
-          {gradingResult?.nextAction && (
+          {displayNextAction && (
              <Box mt={2} display="flex" alignItems="center" gap={1} bgcolor="white" p={1.5} borderRadius={2} border="1px dashed #f59e0b">
                 <ArrowIcon color="warning" fontSize="small"/>
                 <Typography variant="body2" fontWeight="bold" color="#b45309">
-                  {gradingResult.nextAction}
+                  {displayNextAction}
                 </Typography>
              </Box>
           )}

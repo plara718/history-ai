@@ -4,7 +4,7 @@ import {
   Box, Typography, TextField, Button, IconButton, 
   Divider, Stack, ToggleButton, ToggleButtonGroup, 
   CircularProgress, InputAdornment, Tooltip, Zoom,
-  Paper
+  Paper, Alert
 } from '@mui/material';
 import { 
   Close as CloseIcon, 
@@ -16,7 +16,8 @@ import {
   CheckCircle as CheckIcon,
   Key as KeyIcon,
   Badge as BadgeIcon,
-  Launch as LaunchIcon
+  Launch as LaunchIcon,
+  DeleteSweep as CacheIcon // 追加
 } from '@mui/icons-material';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -39,7 +40,6 @@ export const SettingsModal = ({
     if (!newMode || newMode === appMode || !uid) return;
     setLoading(true);
     
-    // UI即時反映
     if (setAppMode) setAppMode(newMode);
 
     try {
@@ -49,7 +49,6 @@ export const SettingsModal = ({
       }, { merge: true });
     } catch (e) {
       console.error("個人設定の保存失敗", e);
-      // エラー時は戻すなどの処理が必要だが、今回はログのみ
     } finally {
       setLoading(false);
     }
@@ -74,6 +73,25 @@ export const SettingsModal = ({
     }
   };
 
+  // ★追加: キャッシュクリアと修復
+  const handleClearCache = () => {
+    if (window.confirm("画面の表示がおかしい場合などに実行してください。\n\nAPIキー以外のキャッシュを削除し、アプリを強制的に再読み込みしますか？")) {
+        // キーを一時退避
+        const savedKey = localStorage.getItem('gemini_api_key');
+        const savedAdminKey = localStorage.getItem('gemini_api_key_admin');
+        
+        // 全クリア
+        localStorage.clear();
+        
+        // キーを復元
+        if (savedKey) localStorage.setItem('gemini_api_key', savedKey);
+        if (savedAdminKey) localStorage.setItem('gemini_api_key_admin', savedAdminKey);
+
+        // キャッシュバスター付きでリロード (強制的に最新ファイルを読み込ませる)
+        window.location.href = window.location.origin + window.location.pathname + '?t=' + new Date().getTime();
+    }
+  };
+
   return (
     <Dialog 
       open={true} 
@@ -84,7 +102,7 @@ export const SettingsModal = ({
         elevation: 24,
         sx: { 
           borderRadius: 4, 
-          overflow: 'visible' // バッジ等がはみ出るのを許可する場合
+          overflow: 'visible' 
         }
       }}
       TransitionComponent={Zoom}
@@ -120,7 +138,7 @@ export const SettingsModal = ({
               <ProductionIcon fontSize="small" color="action"/> AI動作モード
             </Typography>
             <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-              学習コンテンツの生成アルゴリズム（プロンプト強度）を選択します。
+              学習コンテンツの生成アルゴリズムを選択します。
             </Typography>
             
             <ToggleButtonGroup
@@ -208,40 +226,53 @@ export const SettingsModal = ({
             </Stack>
           </Box>
 
-          {/* 3. ユーザー情報 */}
-          <Paper 
-            variant="outlined" 
-            sx={{ 
-              p: 2, borderRadius: 3, 
-              bgcolor: 'grey.50', borderColor: 'divider', 
-              display: 'flex', alignItems: 'center', gap: 2
-            }}
-          >
-            <Box sx={{ p: 1, bgcolor: 'white', borderRadius: '50%', border: '1px solid', borderColor: 'divider', display: 'flex' }}>
-               <BadgeIcon color="action" />
-            </Box>
-            <Box flexGrow={1} overflow="hidden">
-              <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block">
-                User ID (Support)
-              </Typography>
-              <Typography variant="body2" fontFamily="monospace" color="text.primary" fontWeight="bold" noWrap>
-                {uid || 'Loading...'}
-              </Typography>
-            </Box>
-            <Tooltip title={isCopied ? "コピーしました！" : "IDをコピー"} arrow>
-              <IconButton 
-                onClick={handleCopyUid}
-                color={isCopied ? "success" : "default"}
-                sx={{ 
-                  bgcolor: isCopied ? 'success.50' : 'white', 
-                  border: '1px solid',
-                  borderColor: isCopied ? 'success.main' : 'divider'
-                }}
-              >
-                {isCopied ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </Paper>
+          {/* 3. ユーザー情報 & トラブルシューティング */}
+          <Box>
+            <Typography variant="subtitle2" fontWeight="bold" color="text.primary" gutterBottom display="flex" alignItems="center" gap={1}>
+                <BadgeIcon fontSize="small" color="action"/> Account & Support
+            </Typography>
+            
+            <Stack spacing={2}>
+                <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                    p: 2, borderRadius: 3, 
+                    bgcolor: 'grey.50', borderColor: 'divider', 
+                    display: 'flex', alignItems: 'center', gap: 2
+                    }}
+                >
+                    <Box flexGrow={1} overflow="hidden">
+                    <Typography variant="caption" color="text.secondary" fontWeight="bold" display="block">
+                        User ID
+                    </Typography>
+                    <Typography variant="body2" fontFamily="monospace" color="text.primary" fontWeight="bold" noWrap>
+                        {uid || 'Loading...'}
+                    </Typography>
+                    </Box>
+                    <Tooltip title={isCopied ? "コピーしました！" : "IDをコピー"} arrow>
+                    <IconButton 
+                        onClick={handleCopyUid}
+                        color={isCopied ? "success" : "default"}
+                        sx={{ border: '1px solid', borderColor: 'divider' }}
+                    >
+                        {isCopied ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
+                    </IconButton>
+                    </Tooltip>
+                </Paper>
+
+                {/* キャッシュクリアボタン */}
+                <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    startIcon={<CacheIcon />}
+                    onClick={handleClearCache}
+                    sx={{ borderRadius: 3, py: 1, borderColor: 'orange' }}
+                >
+                    動作がおかしい時はここ（キャッシュ削除・修復）
+                </Button>
+            </Stack>
+          </Box>
 
           {/* 管理者ダッシュボードへの導線 */}
           {isAdminMode && (

@@ -34,7 +34,7 @@ const ADMIN_UID = "ksOXMeEuYCdslZeK5axNzn7UCU23";
 const App = () => {
   const { user, loading: authLoading } = useAuthUser(); 
   
-  // タブ管理: 'train' | 'library' | 'log'
+  // タブ管理
   const [activeTab, setActiveTab] = useState('train');
   
   // 設定ステート
@@ -47,21 +47,17 @@ const App = () => {
   const [difficulty, setDifficulty] = useState('standard');
   const [selectedUnit, setSelectedUnit] = useState('原始・古代の日本');
   const [regenCount, setRegenCount] = useState(0);
-
-  // 復習コンテキスト (LessonScreenへ渡す戦略データ)
   const [reviewContext, setReviewContext] = useState(null);
 
   // UI状態
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [step, setStep] = useState('start'); // 'start' | 'lesson'
+  const [step, setStep] = useState('start'); 
   const [currentHash, setCurrentHash] = useState(window.location.hash);
 
-  // 学習セッション管理フック
+  // セッション管理
   const session = useStudySession(user?.uid);
 
   // --- Effects ---
-  
-  // 管理者設定(AIモード)の同期
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'settings', 'ai_config'), (snap) => {
@@ -70,7 +66,6 @@ const App = () => {
     return () => unsub();
   }, [user]);
 
-  // ハッシュ変更監視 (管理者画面遷移用)
   useEffect(() => {
     const handleHashChange = () => setCurrentHash(window.location.hash);
     window.addEventListener('hashchange', handleHashChange);
@@ -78,7 +73,6 @@ const App = () => {
   }, []);
 
   // --- Handlers ---
-
   const handleLogout = async () => {
     try { await signOut(auth); window.location.reload(); } catch (error) { console.error(error); }
   };
@@ -92,14 +86,9 @@ const App = () => {
     scrollToTop();
   };
 
-  const handleStartGeneral = () => {
-    startLesson(learningMode, difficulty, selectedUnit, null);
-  };
-
-  const handleStartReview = (strategy) => {
-    startLesson('review', 'standard', null, strategy);
-  };
-
+  const handleStartGeneral = () => startLesson(learningMode, difficulty, selectedUnit, null);
+  const handleStartReview = (strategy) => startLesson('review', 'standard', null, strategy);
+  
   const handleResume = () => {
     setStep('lesson');
     scrollToTop();
@@ -123,130 +112,115 @@ const App = () => {
       setTimeout(() => setStep('lesson'), 100);
   };
 
-  // --- Render Logic (Content Decision) ---
-  const renderContent = () => {
-    // 1. ローディング中
-    if (authLoading) return <SmartLoader message="認証中..." />;
-    
-    // 2. 管理者画面
-    if (currentHash === '#/admin') {
-        if (!user || user.uid !== ADMIN_UID) {
-          return (
-            <Box p={4} textAlign="center">
-              <p>管理者権限がありません</p>
-              <button onClick={()=>window.location.hash=''}>戻る</button>
-            </Box>
-          );
-        }
-        return <AdminDashboard />;
-    }
-    
-    // 3. 未ログイン
-    if (!user) return <LoginScreen />;
-
-    // 4. メインアプリ画面
-    return (
-      <Container maxWidth="md" sx={{ minHeight: '100vh', py: 0, pb: 12 }}>
-        <Box sx={{ minHeight: '80vh' }}>
-          {activeTab === 'train' && (
-            step === 'lesson' ? (
-              <LessonScreen
-                  apiKey={apiKey}
-                  userId={user.uid}
-                  learningMode={learningMode}
-                  difficulty={difficulty}
-                  selectedUnit={selectedUnit}
-                  sessionNum={session.viewingSession}
-                  currentProgress={session.activeSession}
-                  reviewContext={reviewContext}
-                  onExit={handleLessonExit}
-              />
-            ) : (
-              <StartScreen 
-                  activeSession={session.activeSession}
-                  viewingSession={session.viewingSession}
-                  isDailyLimitReached={session.activeSession > MAX_DAILY_SESSIONS}
-                  learningMode={learningMode} setLearningMode={setLearningMode}
-                  selectedUnit={selectedUnit} setSelectedUnit={setSelectedUnit}
-                  difficulty={difficulty} setDifficulty={setDifficulty}
-                  onStartLesson={handleStartGeneral}
-                  onResumeLesson={handleResume}
-                  onStartReview={handleStartReview}
-                  isProcessing={false} 
-                  historyMeta={session.historyMeta}
-                  onSwitchSession={session.switchSession}
-                  onRegenerate={handleRegenerate}
-                  regenCount={regenCount}
-                  onLogout={handleLogout}
-                  userId={user.email || user.uid}
-                  openSettings={() => setIsSettingsOpen(true)}
-              />
-            )
-          )}
-
-          {activeTab === 'library' && <VocabularyLibrary userId={user.uid} />}
-          {activeTab === 'log' && <LogScreen userId={user.uid} />}
-        </Box>
-
-        {/* 設定モーダル */}
-        {isSettingsOpen && (
-            <SettingsModal 
-                apiKey={apiKey} setApiKey={setApiKey}
-                onClose={() => setIsSettingsOpen(false)} 
-                uid={user.uid}
-                onAdmin={() => { setIsSettingsOpen(false); window.location.hash = '#/admin'; }}
-                isAdminMode={user.uid === ADMIN_UID}
-                adminApiKey={adminApiKey} setAdminApiKey={setAdminApiKey}
-                appMode={appMode} setAppMode={setAppMode}
-            />
-        )}
-        
-        {/* ボトムナビゲーション */}
-        {(step === 'start') && (
-          <Paper 
-            sx={{ 
-              position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000,
-              borderRadius: '24px 24px 0 0',
-              pb: 3, pt: 1.5, 
-              bgcolor: 'rgba(255,255,255,0.9)',
-              backdropFilter: 'blur(20px)',
-              boxShadow: '0 -4px 20px rgba(0,0,0,0.05)',
-              borderTop: '1px solid rgba(255,255,255,0.5)'
-            }} 
-            elevation={0}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', maxWidth: 'md', mx: 'auto' }}>
-              <NavButton 
-                active={activeTab === 'train'} 
-                onClick={() => {setActiveTab('train'); scrollToTop();}} 
-                icon={Brain} 
-                label="学習" 
-              />
-              <NavButton 
-                active={activeTab === 'library'} 
-                onClick={() => {setActiveTab('library'); scrollToTop();}} 
-                icon={BookOpen} 
-                label="用語帳" 
-              />
-              <NavButton 
-                active={activeTab === 'log'} 
-                onClick={() => {setActiveTab('log'); scrollToTop();}} 
-                icon={CheckCircle} 
-                label="記録" 
-              />
-            </Box>
-          </Paper>
-        )}
-      </Container>
-    );
-  };
-
-  // --- Root Render ---
-  // ★重要: ここで ThemeProvider を一番外側に配置し、すべてをラップする
+  // --- 画面描画の決定 ---
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      {renderContent()}
+      
+      {/* 1. 認証ローディング中 */}
+      {authLoading ? (
+        <SmartLoader message="認証中..." />
+      ) : !user ? (
+        /* 2. 未ログイン */
+        <LoginScreen />
+      ) : currentHash === '#/admin' && user.uid === ADMIN_UID ? (
+        /* 3. 管理者画面 */
+        <AdminDashboard />
+      ) : (
+        /* 4. メインアプリ */
+        <Container maxWidth="md" sx={{ minHeight: '100vh', py: 0, pb: 12 }}>
+          <Box sx={{ minHeight: '80vh' }}>
+            {activeTab === 'train' && (
+              step === 'lesson' ? (
+                <LessonScreen
+                    apiKey={apiKey}
+                    userId={user.uid}
+                    learningMode={learningMode}
+                    difficulty={difficulty}
+                    selectedUnit={selectedUnit}
+                    sessionNum={session.viewingSession}
+                    currentProgress={session.activeSession}
+                    reviewContext={reviewContext}
+                    onExit={handleLessonExit}
+                />
+              ) : (
+                <StartScreen 
+                    activeSession={session.activeSession}
+                    viewingSession={session.viewingSession}
+                    isDailyLimitReached={session.activeSession > MAX_DAILY_SESSIONS}
+                    learningMode={learningMode} setLearningMode={setLearningMode}
+                    selectedUnit={selectedUnit} setSelectedUnit={setSelectedUnit}
+                    difficulty={difficulty} setDifficulty={setDifficulty}
+                    onStartLesson={handleStartGeneral}
+                    onResumeLesson={handleResume}
+                    onStartReview={handleStartReview}
+                    isProcessing={false} 
+                    historyMeta={session.historyMeta}
+                    onSwitchSession={session.switchSession}
+                    onRegenerate={handleRegenerate}
+                    regenCount={regenCount}
+                    onLogout={handleLogout}
+                    userId={user.email || user.uid}
+                    openSettings={() => setIsSettingsOpen(true)}
+                />
+              )
+            )}
+
+            {activeTab === 'library' && <VocabularyLibrary userId={user.uid} />}
+            {activeTab === 'log' && <LogScreen userId={user.uid} />}
+          </Box>
+
+          {/* 設定モーダル */}
+          {isSettingsOpen && (
+              <SettingsModal 
+                  apiKey={apiKey} setApiKey={setApiKey}
+                  onClose={() => setIsSettingsOpen(false)} 
+                  uid={user.uid}
+                  onAdmin={() => { setIsSettingsOpen(false); window.location.hash = '#/admin'; }}
+                  isAdminMode={user.uid === ADMIN_UID}
+                  adminApiKey={adminApiKey} setAdminApiKey={setAdminApiKey}
+                  appMode={appMode} setAppMode={setAppMode}
+              />
+          )}
+          
+          {/* ボトムナビゲーション (スタート画面のみ表示) */}
+          {(step === 'start') && (
+            <Paper 
+              sx={{ 
+                position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000,
+                borderRadius: '24px 24px 0 0',
+                pb: 3, pt: 1.5, 
+                bgcolor: 'rgba(255,255,255,0.9)',
+                backdropFilter: 'blur(20px)',
+                boxShadow: '0 -4px 20px rgba(0,0,0,0.05)',
+                borderTop: '1px solid rgba(255,255,255,0.5)'
+              }} 
+              elevation={0}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', maxWidth: 'md', mx: 'auto' }}>
+                <NavButton 
+                  active={activeTab === 'train'} 
+                  onClick={() => {setActiveTab('train'); scrollToTop();}} 
+                  icon={Brain} 
+                  label="学習" 
+                />
+                <NavButton 
+                  active={activeTab === 'library'} 
+                  onClick={() => {setActiveTab('library'); scrollToTop();}} 
+                  icon={BookOpen} 
+                  label="用語帳" 
+                />
+                <NavButton 
+                  active={activeTab === 'log'} 
+                  onClick={() => {setActiveTab('log'); scrollToTop();}} 
+                  icon={CheckCircle} 
+                  label="記録" 
+                />
+              </Box>
+            </Paper>
+          )}
+        </Container>
+      )}
     </ThemeProvider>
   );
 };

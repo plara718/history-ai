@@ -10,7 +10,7 @@ import {
   EmojiEvents as TrophyIcon,
   EditNote as NoteIcon,
   Home as HomeIcon,
-  ArrowForward as ArrowIcon // import漏れ防止
+  ArrowForward as ArrowIcon
 } from '@mui/icons-material';
 
 export const SummaryScreen = ({ 
@@ -41,11 +41,10 @@ export const SummaryScreen = ({
     });
   }, [lessonData, quizResults]);
 
-  // 2. スコア計算 (互換性維持)
+  // 2. スコア計算
   const quizCorrectCount = quizResults.filter(r => r.is_correct).length;
   const quizTotalCount = quizResults.length || 1;
   
-  // 記述スコア: gradingResult.score がなければ rank から計算
   let essayScore = 0;
   if (gradingResult?.score) {
     essayScore = gradingResult.score;
@@ -57,7 +56,6 @@ export const SummaryScreen = ({
     else essayScore = 4;
   }
   
-  // 総合スコア（100点満点換算：クイズ60点 + 記述40点）
   const totalScore = Math.round(
     ((quizCorrectCount / quizTotalCount) * 60) + ((essayScore / 10) * 40)
   );
@@ -67,14 +65,12 @@ export const SummaryScreen = ({
     const dateStr = new Date().toLocaleString('ja-JP');
     const theme = lessonData?.content?.theme || '学習テーマ';
     
-    // クイズログ
     const quizDetailsText = quizLog.map((log, i) => `
 Q${i+1}. ${log.q} [${log.type}]
 - 結果: ${log.isCorrect ? '✅ 正解' : '❌ 不正解'}
 - 解説: ${log.exp.replace(/\n/g, ' ')}
     `.trim()).join('\n');
 
-    // 記述フィードバック (データ構造の揺らぎを吸収)
     const correction = gradingResult?.correction || gradingResult?.weak_point || "（特になし）";
     const advice = gradingResult?.overall_comment || gradingResult?.advice || "（アドバイスなし）";
     const goodPoint = gradingResult?.good_point ? `良い点: ${gradingResult.good_point}` : "";
@@ -132,7 +128,6 @@ ${lessonData?.content?.lecture || ''}
     window.open('https://notebooklm.google.com/', '_blank');
   };
 
-  // 表示用のアドバイス文言
   const displayAdvice = gradingResult?.overall_comment || gradingResult?.advice || "素晴らしい取り組みです。解説をよく読んで復習しましょう。";
   const displayNextAction = gradingResult?.nextAction || (gradingResult?.weak_point ? `弱点攻略: ${gradingResult.weak_point.substring(0, 20)}...` : null);
 
@@ -236,7 +231,6 @@ ${lessonData?.content?.lecture || ''}
           }}
         />
       </Box>
-
 
       {/* アクションボタン群 */}
       <Stack spacing={2} sx={{ maxWidth: 500, mx: 'auto' }}>

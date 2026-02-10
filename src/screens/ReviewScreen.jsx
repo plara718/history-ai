@@ -7,8 +7,7 @@ import {
   CheckCircle, 
   Cancel,
   ChevronRight, 
-  ArrowForward as ArrowRight, 
-  Check as CheckIcon
+  ArrowForward as ArrowRight
 } from '@mui/icons-material';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 
@@ -28,7 +27,7 @@ const ReviewScreen = ({
   const currentQ = reviewProblems[qIndex];
   const totalQ = reviewProblems.length;
   
-  // 問題タイプ判定 (データ構造の揺らぎに対応)
+  // 問題タイプ判定
   const isSort = currentQ.type === 'sort' || (currentQ.items && currentQ.items.length > 0);
   const isTF = !isSort;
   
@@ -44,7 +43,6 @@ const ReviewScreen = ({
   const handleSortToggle = (itemIndex) => {
     if (isAnswered) return;
     
-    // 現在の回答配列を取得 (初期値がnullなら空配列)
     const currentOrder = Array.isArray(reviewUserAnswer) ? [...reviewUserAnswer] : [];
     
     if (currentOrder.includes(itemIndex)) {
@@ -61,7 +59,6 @@ const ReviewScreen = ({
   // 正誤問題: 回答送信
   const handleTFSubmit = (selectedBool) => {
     if (isAnswered) return;
-    // 親コンポーネントへ通知 (true/false)
     handleReviewAnswer(selectedBool);
   };
 
@@ -81,7 +78,7 @@ const ReviewScreen = ({
         elevation={0} 
         sx={{ 
           p: { xs: 3, sm: 4 }, 
-          borderRadius: 3, // デザイン統一: 4->3
+          borderRadius: 3,
           bgcolor: 'white', 
           border: '1px solid', 
           borderColor: 'divider', 
@@ -103,11 +100,9 @@ const ReviewScreen = ({
           {isTF ? (
               // --- 正誤問題 (True/False) ---
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  {/* True Button */}
                   <Button
                       fullWidth
                       variant={isAnswered && reviewUserAnswer === true ? "contained" : "outlined"}
-                      // 正解なら緑、不正解なら赤
                       color={isAnswered ? (reviewResult ? "success" : "error") : "primary"}
                       onClick={() => handleTFSubmit(true)}
                       disabled={isAnswered}
@@ -122,7 +117,6 @@ const ReviewScreen = ({
                        ⭕ 正しい
                   </Button>
 
-                  {/* False Button */}
                   <Button
                       fullWidth
                       variant={isAnswered && reviewUserAnswer === false ? "contained" : "outlined"}
@@ -134,7 +128,6 @@ const ReviewScreen = ({
                           py: 2, borderRadius: 3, 
                           fontSize: '1.1rem', fontWeight: 'bold',
                           borderWidth: 2,
-                          // 未回答時は赤枠、回答済みなら結果色
                           borderColor: !isAnswered ? 'error.main' : undefined,
                           color: !isAnswered ? 'error.main' : undefined,
                           '&:hover': { borderWidth: 2, bgcolor: 'error.50' }
@@ -146,7 +139,7 @@ const ReviewScreen = ({
           ) : (
               // --- 整序問題 (Sort) ---
               <Box>
-                  {/* 選択エリア (Selected Items) */}
+                  {/* 選択エリア */}
                   <Box 
                     mb={3} p={2} 
                     bgcolor="grey.50" borderRadius={3} 
@@ -175,7 +168,7 @@ const ReviewScreen = ({
                       </Box>
                   </Box>
 
-                  {/* 候補エリア (Candidates) */}
+                  {/* 候補エリア */}
                   <Grid container spacing={1} justifyContent="center" mb={4}>
                       {items.map((item, i) => {
                           const isSelected = (reviewUserAnswer || []).includes(i);
@@ -184,7 +177,6 @@ const ReviewScreen = ({
                                 <Button
                                     fullWidth
                                     variant={isSelected ? "contained" : "outlined"}
-                                    // 選択済みならグレーアウト
                                     color={isSelected ? "inherit" : "primary"}
                                     onClick={() => handleSortToggle(i)} 
                                     disabled={isAnswered || isSelected}
@@ -207,7 +199,6 @@ const ReviewScreen = ({
                           );
                       })}
                   </Grid>
-
 
                   {!isAnswered && (
                       <Button 
@@ -239,7 +230,6 @@ const ReviewScreen = ({
 
               <Paper elevation={0} sx={{ p: 3, borderRadius: 3, bgcolor: '#f8fafc', border: '1px solid', borderColor: '#e2e8f0', mb: 4 }}>
                   
-                  {/* 整序問題の正解表示 (不正解時のみ) */}
                   {isSort && !reviewResult && currentQ.correct_order && (
                       <Box mb={3} p={2} bgcolor="white" borderRadius={2} border="1px solid" borderColor="success.light">
                            <Typography variant="caption" display="block" color="success.main" fontWeight="bold" mb={1}>

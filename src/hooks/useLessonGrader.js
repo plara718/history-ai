@@ -22,6 +22,12 @@ export const useLessonGrader = (apiKey, userId) => {
     setGradeError(null);
 
     try {
+      // データの階層構造を吸収 (contentプロパティの有無に対応)
+      const content = lessonData.content || lessonData;
+      const theme = content.theme || "テーマ不明";
+      const question = content.essay?.q || "問題文不明";
+      const modelAnswer = content.essay?.model || "特になし";
+
       // ミスタグの定義リストを生成
       const mistakeTagsDef = generateTagPrompt('MISTAKE');
 
@@ -48,9 +54,9 @@ export const useLessonGrader = (apiKey, userId) => {
       以下のデータに基づき、ユーザーの記述回答を採点し、劇的な改善案（添削）と、**次の具体的な学習指針**を作成してください。
 
       【前提データ】
-      - 学習テーマ: ${lessonData.theme}
-      - 問題文: ${lessonData.essay?.q || "不明"}
-      - 採点基準(Model): ${lessonData.essay?.model || "特になし"}
+      - 学習テーマ: ${theme}
+      - 問題文: ${question}
+      - 採点基準(Model): ${modelAnswer}
       - ユーザーの回答: "${userEssayAnswer}"
       - モード: ${learningMode}
 
@@ -97,6 +103,7 @@ export const useLessonGrader = (apiKey, userId) => {
          例: "「荘園」の単元をEasyモードで復習しましょう" や "次は「鎌倉文化」に進んでOKです" など。
       `;
 
+      // callAIの呼び出し (記述採点アクション)
       const result = await callAI("記述採点", prompt, apiKey, userId);
 
       return result;
@@ -104,7 +111,9 @@ export const useLessonGrader = (apiKey, userId) => {
     } catch (e) {
       console.error(e);
       setGradeError(e.message || "採点中にエラーが発生しました");
-      throw e;
+      // UI側でハンドリングできるようエラーを再スローしても良いが、
+      // ここではnullを返しつつエラー状態を持たせる設計とする
+      return null;
     } finally {
       setIsGrading(false);
     }

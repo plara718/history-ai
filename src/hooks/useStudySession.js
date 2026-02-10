@@ -36,7 +36,6 @@ export const useStudySession = (userId) => {
       
       const meta = {};
       let nextSession = 1;
-      let isAllCompleted = true; // 全て完了しているか？
 
       snaps.forEach((s, index) => {
         const sessionNum = index + 1;
@@ -50,45 +49,39 @@ export const useStudySession = (userId) => {
             completed: isCompleted, 
             theme: d.theme || d.content?.theme 
           };
-
-          if (!isCompleted) {
-            isAllCompleted = false;
-            // 未完了の中で一番若い番号を nextSession にする
-            // (既に nextSession が更新されている場合は、より小さい方を優先したいが、
-            //  通常は順番に進むので、ループで見つかった最初の未完了をセットすればよい)
-            if (nextSession > sessionNum) nextSession = sessionNum; 
-          }
         } else {
           // データなし
           meta[sessionNum] = { exists: false, completed: false };
-          isAllCompleted = false;
         }
       });
 
       // 次にやるべきセッションの決定ロジック
       // 1から順に見て、最初に「完了していない」セッションを探す
+      let foundNext = false;
       for (let i = 1; i <= MAX_DAILY_SESSIONS; i++) {
         if (!meta[i]?.completed) {
           nextSession = i;
+          foundNext = true;
           break;
         }
-        // ループが最後まで行ったら nextSession は MAX + 1 になるイメージだが、
-        // ここでは MAX で止めるか、完了済み状態として扱う
-        if (i === MAX_DAILY_SESSIONS) nextSession = MAX_DAILY_SESSIONS; 
+      }
+      // 全て完了している場合は、最後のセッションを指しておく
+      if (!foundNext) {
+        nextSession = MAX_DAILY_SESSIONS;
       }
 
       setHistoryMeta(meta);
       setActiveSession(nextSession);
       
       // 表示セッションの初期値: 
-      // 基本は nextSession だが、もし全て完了していれば最後のセッションを見せる
+      // 基本は nextSession だが、ロード完了時はそこを表示する
       setViewingSession(nextSession);
       
-      return { nextSession, isAllCompleted };
+      return { nextSession };
 
     } catch (e) { 
       console.error("History load error", e); 
-      return { nextSession: 1, isAllCompleted: false };
+      return { nextSession: 1 };
     }
   }, [userId]);
 
@@ -102,10 +95,8 @@ export const useStudySession = (userId) => {
         const sessionRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
         await setDoc(sessionRef, { completed: true }, { merge: true });
         
-        
         // 2. ヒートマップ（学習日数/回数）の更新
-        // ドット記法を使って、特定の日付キーだけをインクリメントする
-        // ネストされたフィールド "data.2023-10-01" を更新
+        // data.YYYY-MM-DD というキーで更新
         const statsRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'stats', 'heatmap');
         await setDoc(statsRef, {
             [`data.${today}`]: increment(1)
@@ -126,6 +117,8 @@ export const useStudySession = (userId) => {
         // 次のセッションへ進めるなら進める
         if (sessionNum < MAX_DAILY_SESSIONS) {
           setActiveSession(sessionNum + 1);
+          // 完了した瞬間、自動的に次のセッションへビューを切り替えるかはお好みですが、
+          // ここではユーザーが「戻る」を押したあとの挙動として active を更新するだけに留めます
         }
 
       } catch (e) {

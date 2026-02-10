@@ -10,7 +10,6 @@ export const useLessonGuard = (isActive, onAttemptBack) => {
   // コールバック関数をRefに保持し、useEffectの依存配列から除外する
   // (これにより、親コンポーネントの再レンダリング時に履歴が無限に追加されるのを防ぐ)
   const backHandlerRef = useRef(onAttemptBack);
-
   
   useEffect(() => {
     backHandlerRef.current = onAttemptBack;

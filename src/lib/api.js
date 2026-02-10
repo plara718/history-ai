@@ -9,13 +9,11 @@ export const callAI = async (actionName, prompt, apiKey, userId) => {
   // 1. 設定の取得（優先度: 個人設定 ＞ 全体設定 ＞ デフォルト）
   let appMode = 'production';
   try {
-    // userIdが存在する場合のみ個人設定を確認（クラッシュ防止）
     if (userId) {
       const userSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'users', userId, 'settings', 'ai_config'));
       if (userSnap.exists()) {
         appMode = userSnap.data().appMode;
       } else {
-        // 個人設定がない場合、全体設定を確認
         const globalSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'settings', 'global'));
         if (globalSnap.exists()) {
           appMode = globalSnap.data().appMode || 'production';
@@ -26,12 +24,11 @@ export const callAI = async (actionName, prompt, apiKey, userId) => {
     console.warn("[AI] 設定取得プロセスでエラーが発生しました。デフォルトを使用します。", e);
   }
 
-  // 2. モードに応じた最新モデルの割り当て (2026年最新版)
-  // production: 最新の高速・安定モデル "Gemini 2.5 Flash"
-  // test: 実験的なオープンモデル "Gemma 3 (27B IT)"
+  // 2. モードに応じたモデルの割り当て (指定されたバージョンを正とする)
   const modelName = appMode === 'production' ? "gemini-2.5-flash" : "gemma-3-27b-it";
   
   const genAI = new GoogleGenerativeAI(apiKey);
+  // systemInstructionはpromptに統合するため、ここではmodel指定のみ
   const model = genAI.getGenerativeModel({ model: modelName });
 
   const MAX_RETRIES = 2;
@@ -85,9 +82,8 @@ export const callAI = async (actionName, prompt, apiKey, userId) => {
       if (errorMsg.includes("429") || errorMsg.includes("Quota exceeded")) {
           throw new Error("⚠️ AIの利用制限(429)にかかりました。少し時間を置いてください。");
       } else if (errorMsg.includes("not found") || errorMsg.includes("404")) {
-          // 万が一モデルが見つからない場合のフォールバック提案
           console.error(`Model ${modelName} not found. Check API key or region.`);
-          throw new Error(`指定されたAIモデル(${modelName})が見つかりません。APIキーの設定を確認してください。`);
+          throw new Error(`指定されたAIモデル(${modelName})が見つかりません。モデル名を確認してください。`);
       }
 
       attempt++;

@@ -179,6 +179,7 @@ export const SettingsModal = ({
             </ToggleButtonGroup>
           </Box>
 
+
           {/* 2. APIキー設定 */}
           <Box>
             <Typography variant="subtitle2" fontWeight="bold" color="text.primary" gutterBottom display="flex" alignItems="center" gap={1}>

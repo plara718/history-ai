@@ -139,6 +139,7 @@ const LogScreen = ({ userId }) => {
         </Typography>
       </Box>
 
+
       {/* 統計分析エリア (Weakness / Strength) */}
       <Box sx={{ mb: 6 }}>
         <StatsOverview userId={userId} />

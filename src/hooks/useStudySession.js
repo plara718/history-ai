@@ -102,6 +102,7 @@ export const useStudySession = (userId) => {
         const sessionRef = doc(db, 'artifacts', APP_ID, 'users', userId, 'daily_progress', `${today}_${sessionNum}`);
         await setDoc(sessionRef, { completed: true }, { merge: true });
         
+        
         // 2. ヒートマップ（学習日数/回数）の更新
         // ドット記法を使って、特定の日付キーだけをインクリメントする
         // ネストされたフィールド "data.2023-10-01" を更新

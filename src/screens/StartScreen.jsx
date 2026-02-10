@@ -238,6 +238,7 @@ const StartScreen = ({
               </ToggleButton>
             </ToggleButtonGroup>
 
+
             {/* 教科書単元選択 (Schoolモードのみ) */}
             {isSchool && (
                <FormControl fullWidth size="small">

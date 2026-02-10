@@ -279,6 +279,7 @@ export const LessonScreen = ({
     scrollToTop();
   };
 
+  
   if (step === 'loading') {
     return <SmartLoader message="AIが授業を準備中..." />;
   }

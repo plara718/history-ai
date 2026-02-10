@@ -48,6 +48,7 @@ export const NavButton = ({ active, icon: Icon, label, onClick }) => (
         />
       </Box>
       
+      
       <Typography
         variant="caption"
         sx={{

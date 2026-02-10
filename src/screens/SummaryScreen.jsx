@@ -237,6 +237,7 @@ ${lessonData?.content?.lecture || ''}
         />
       </Box>
 
+
       {/* アクションボタン群 */}
       <Stack spacing={2} sx={{ maxWidth: 500, mx: 'auto' }}>
         <Button

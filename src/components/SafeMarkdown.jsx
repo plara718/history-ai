@@ -11,6 +11,7 @@ import { alpha } from '@mui/material/styles';
 export const SafeMarkdown = ({ content }) => {
   if (!content) return null;
 
+  
   return (
     <Box 
       className="markdown-body"

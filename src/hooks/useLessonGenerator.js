@@ -302,6 +302,7 @@ export const useLessonGenerator = (apiKey, userId) => {
          - "${planRes.strategic_essence}" を講義のハイライトとして組み込め。
          - 最終的に、Markdown形式で見やすく整形すること。
       
+         
       2. **正誤問題 (true_false)**:
          - 3問。
          ${tfInstruction}

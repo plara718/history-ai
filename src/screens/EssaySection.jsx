@@ -169,6 +169,7 @@ export const EssaySection = ({
               </Box>
             </Box>
 
+
             {/* 問題文 */}
             <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 3, lineHeight: 1.6 }}>
               Q. {essayData.q}

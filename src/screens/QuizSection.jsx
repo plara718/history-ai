@@ -254,6 +254,7 @@ export const QuizSection = ({ lessonData, initialData, onProgress, onComplete })
                   <SafeMarkdown content={currentQuestion.exp} />
                 </Box>
 
+
                 {/* 次へボタン */}
                 <Button 
                   variant="contained" 

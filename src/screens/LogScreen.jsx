@@ -2,18 +2,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Box, Container, Typography, Paper, 
   List, IconButton, Grid, Card, CardContent, Dialog, 
-  DialogContent, DialogActions, Button, Divider 
+  DialogContent, DialogTitle, Tab, Tabs, Chip, Divider, 
+  Accordion, AccordionSummary, AccordionDetails, Stack
 } from '@mui/material';
 import { 
   History, CheckCircle, ChevronLeft, ChevronRight, 
-  EmojiEvents, AccessTime, AutoStories 
+  Close as CloseIcon, ExpandMore as ExpandMoreIcon,
+  Cancel as CancelIcon, Trophy as TrophyIcon, // Trophyがない場合は EmojiEvents で代用
+  Edit as EditIcon, Quiz as QuizIcon, MenuBook as BookIcon,
+  AccessTime, AutoStories, EmojiEvents 
 } from '@mui/icons-material';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { APP_ID } from '../lib/constants';
 
-// 統計分析コンポーネント
+// コンポーネント
 import { StatsOverview } from '../components/StatsOverview';
+import { SafeMarkdown } from '../components/SafeMarkdown';
 
 const LogScreen = ({ userId }) => {
   // カレンダー用ステート
@@ -25,6 +30,7 @@ const LogScreen = ({ userId }) => {
   // 詳細ダイアログ用ステート
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [tabIndex, setTabIndex] = useState(0); // 詳細モーダル内のタブ
 
   // --- カレンダーロジック ---
   const calendarDays = useMemo(() => {
@@ -105,6 +111,7 @@ const LogScreen = ({ userId }) => {
   
   const handleSessionClick = (session) => {
     setSelectedSession(session);
+    setTabIndex(0); // タブをリセット
     setDetailModalOpen(true);
   };
 
@@ -113,16 +120,16 @@ const LogScreen = ({ userId }) => {
   
   const hasDataOnDay = (date) => monthlyData.some(item => item.timestamp && isSameDay(new Date(item.timestamp), date));
 
-  // スコア表示ヘルパー
+  // --- レンダリングヘルパー ---
   const getScoreInfo = (item) => {
+    // 新しいデータ形式 (scoresオブジェクトあり)
     if (item.scores) {
-        const totalEarned = (item.scores.quizCorrect || 0) + (item.scores.essayScore || 0);
-        const totalMax = (item.scores.quizTotal || 0) + (item.scores.essayTotal || 10);
-        // 合計点数を10点満点に換算して表示
-        const scaledScore = totalMax > 0 ? Math.round((totalEarned / totalMax) * 10) : 0;
-        return { val: scaledScore, max: 10 };
+        const quizScore = item.scores.quizCorrect || 0;
+        const essayScore = item.scores.essayScore || 0;
+        const total = quizScore + essayScore; // 簡易合計
+        return { val: total, max: (item.scores.quizTotal || 0) + 10 }; 
     }
-    // 古いデータ形式または採点結果のみの場合
+    // 古いデータ形式 (gradingResultのみ)
     if (item.gradingResult) return { val: item.gradingResult.score, max: 10 };
     return null;
   };
@@ -139,8 +146,7 @@ const LogScreen = ({ userId }) => {
         </Typography>
       </Box>
 
-
-      {/* 統計分析エリア (Weakness / Strength) */}
+      {/* 統計分析エリア */}
       <Box sx={{ mb: 6 }}>
         <StatsOverview userId={userId} />
       </Box>
@@ -205,7 +211,6 @@ const LogScreen = ({ userId }) => {
                       {date.getDate()}
                     </Typography>
                     
-                    {/* データがある日のドットマーカー */}
                     {hasData && (
                       <Box 
                         sx={{ 
@@ -235,7 +240,8 @@ const LogScreen = ({ userId }) => {
           {dailySessions.length > 0 ? (
             dailySessions.map((item) => {
               const scoreInfo = getScoreInfo(item);
-              const theme = item.content?.theme || 'テーマなし';
+              // content.theme がない場合は item.theme を見る (互換性)
+              const theme = item.content?.theme || item.theme || 'テーマなし';
               
               return (
                 <Paper 
@@ -253,18 +259,19 @@ const LogScreen = ({ userId }) => {
                     <Box 
                       sx={{ 
                         width: 56, height: 56, borderRadius: 3, 
-                        bgcolor: scoreInfo && scoreInfo.val >= 8 ? 'success.50' : 'grey.50',
-                        color: scoreInfo && scoreInfo.val >= 8 ? 'success.main' : 'text.secondary',
+                        bgcolor: 'grey.50',
+                        color: 'text.secondary',
                         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                         mr: 2, border: '1px solid', borderColor: 'divider'
                       }}
                     >
                       {scoreInfo ? (
                         <>
+                           {/* 点数をそのまま出すか、ランクを出すかはお好みで */}
                           <Typography variant="h6" fontWeight="900" lineHeight={1}>
                             {scoreInfo.val}
                           </Typography>
-                          <Typography variant="caption" fontSize="0.6rem" fontWeight="bold">SCORE</Typography>
+                          <Typography variant="caption" fontSize="0.6rem" fontWeight="bold">TOTAL</Typography>
                         </>
                       ) : (
                         <History fontSize="small" />
@@ -281,7 +288,8 @@ const LogScreen = ({ userId }) => {
                     </Box>
 
                     <Box sx={{ color: 'text.disabled', pr: 1 }}>
-                      <CheckCircle fontSize="small" color={item.completed ? "success" : "disabled"} />
+                       {/* 詳細へ飛ぶアイコン */}
+                      <ChevronRight />
                     </Box>
                   </Box>
                 </Paper>
@@ -298,81 +306,157 @@ const LogScreen = ({ userId }) => {
         </List>
       </Box>
 
-      {/* --- 詳細ダイアログ --- */}
+      {/* --- 詳細ダイアログ (拡張版) --- */}
       <Dialog 
         open={detailModalOpen} 
         onClose={() => setDetailModalOpen(false)}
-        maxWidth="xs"
+        maxWidth="md"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 4, m: 2 } }}
+        PaperProps={{ sx: { borderRadius: 3, minHeight: '80vh' } }}
       >
-        {selectedSession && (
-          <>
-            <DialogContent sx={{ pt: 3, pb: 2 }}>
-              <Box textAlign="center" mb={2}>
-                 <Typography variant="overline" color="text.secondary" sx={{ fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: 1 }}>
-                    LEARNING REPORT
-                 </Typography>
-                 <Typography variant="h6" sx={{ fontWeight: 'bold', lineHeight: 1.3, mt: 0.5 }}>
-                    {selectedSession.content?.theme}
-                 </Typography>
+        {selectedSession && (() => {
+          // データ展開
+          const { content, quizResults, gradingResult, essayAnswer, timestamp, scores } = selectedSession;
+          const theme = content?.theme || selectedSession.theme || '無題の学習';
+          const lecture = content?.lecture || "";
+          
+          return (
+            <>
+              <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" fontWeight="bold">
+                     {timestamp ? new Date(timestamp).toLocaleString() : ''}
+                  </Typography>
+                  <Typography variant="h6" fontWeight="900" lineHeight={1.2}>
+                     {theme}
+                  </Typography>
+                </Box>
+                <IconButton onClick={() => setDetailModalOpen(false)}><CloseIcon /></IconButton>
+              </DialogTitle>
+              
+              {/* タブメニュー */}
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}>
+                <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} variant="fullWidth">
+                  <Tab icon={<EditIcon fontSize="small"/>} label="記述添削" iconPosition="start" />
+                  <Tab icon={<QuizIcon fontSize="small"/>} label="クイズ解説" iconPosition="start" />
+                  <Tab icon={<BookIcon fontSize="small"/>} label="講義ノート" iconPosition="start" />
+                </Tabs>
               </Box>
 
-              <Divider sx={{ mb: 3 }} />
-            
-              {/* スコア詳細 */}
-              {selectedSession.scores && (
-                <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 3, mb: 3, border: '1px solid', borderColor: 'divider' }}>
-                   <Grid container spacing={2} textAlign="center">
-                     <Grid item xs={6}>
-                       <Typography variant="caption" color="text.secondary" fontWeight="bold">QUIZ</Typography>
-                       <Typography variant="h5" fontWeight="900" color="primary.main">
-                         {selectedSession.scores.quizCorrect}<span style={{fontSize: '0.9rem', color: '#9ca3af'}}>/{selectedSession.scores.quizTotal}</span>
-                       </Typography>
-                     </Grid>
-                     <Grid item xs={6}>
-                       <Typography variant="caption" color="text.secondary" fontWeight="bold">ESSAY</Typography>
-                       <Typography variant="h5" fontWeight="900" color="primary.main">
-                         {selectedSession.scores.essayScore}<span style={{fontSize: '0.9rem', color: '#9ca3af'}}>/{selectedSession.scores.essayTotal}</span>
-                       </Typography>
-                     </Grid>
-                   </Grid>
-                </Box>
-              )}
+              <DialogContent sx={{ p: 0, bgcolor: '#f8fafc' }}>
+                
+                {/* Tab 0: 記述添削 */}
+                {tabIndex === 0 && (
+                  <Box p={3}>
+                    {gradingResult ? (
+                      <>
+                        {/* スコアカード */}
+                        <Paper sx={{ p: 3, mb: 3, borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'white' }}>
+                          <Box>
+                            <Typography variant="caption" fontWeight="bold" color="text.secondary">ESSAY SCORE</Typography>
+                            <Typography variant="h3" fontWeight="900" color={gradingResult.score >= 8 ? 'success.main' : 'primary.main'}>
+                              {gradingResult.score}<span style={{fontSize: '1rem', color: '#94a3b8'}}>/10</span>
+                            </Typography>
+                          </Box>
+                          <Chip 
+                            icon={<EmojiEvents />} 
+                            label={`Rank ${gradingResult.rank || '-'}`} 
+                            color={gradingResult.score >= 8 ? 'success' : 'primary'} 
+                            variant="outlined"
+                            sx={{ fontWeight: 'bold', fontSize: '1rem', px: 1, py: 2.5, borderRadius: 2 }}
+                          />
+                        </Paper>
 
-              {/* Next Action */}
-              {selectedSession.scores?.nextAction && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', color: 'warning.main', fontWeight: 'bold', mb: 1 }}>
-                    <EmojiEvents sx={{ fontSize: 18, mr: 0.5 }} /> Next Action
-                  </Typography>
-                  <Paper elevation={0} sx={{ bgcolor: 'warning.50', p: 2, borderRadius: 2, border: '1px solid', borderColor: 'warning.200' }}>
-                     <Typography variant="body2" sx={{ color: 'text.primary', fontSize: '0.9rem', lineHeight: 1.6, fontWeight: 'medium' }}>
-                       {selectedSession.scores.nextAction}
-                     </Typography>
-                  </Paper>
-                </Box>
-              )}
-              
-              {/* 完了日時 */}
-              <Typography variant="caption" display="block" textAlign="right" color="text.disabled" sx={{ mt: 2 }}>
-                Completed: {new Date(selectedSession.timestamp).toLocaleString()}
-              </Typography>
-            </DialogContent>
-            
-            <DialogActions sx={{ p: 2, pt: 0, justifyContent: 'center' }}>
-              <Button 
-                onClick={() => setDetailModalOpen(false)} 
-                fullWidth 
-                variant="outlined" 
-                size="large" 
-                sx={{ borderRadius: 3, fontWeight: 'bold', border: '1px solid', borderColor: 'divider', color: 'text.secondary' }}
-              >
-                閉じる
-              </Button>
-            </DialogActions>
-          </>
-        )}
+                        {/* 自分の回答 */}
+                        <Paper sx={{ p: 3, mb: 3, borderRadius: 3, bgcolor: 'white' }}>
+                          <Typography variant="subtitle2" color="text.secondary" fontWeight="bold" mb={1}>
+                            あなたの回答
+                          </Typography>
+                          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: 'text.primary' }}>
+                            {essayAnswer || "（回答なし）"}
+                          </Typography>
+                        </Paper>
+
+                        {/* AI添削 */}
+                        <Paper sx={{ p: 3, borderRadius: 3, bgcolor: 'white' }}>
+                           <Typography variant="subtitle2" color="primary" fontWeight="bold" mb={2} display="flex" alignItems="center" gap={1}>
+                            <EditIcon fontSize="small"/> AI添削＆フィードバック
+                           </Typography>
+                           <SafeMarkdown content={gradingResult.correction} />
+                           <Divider sx={{ my: 2 }} />
+                           <Typography variant="body2" color="text.secondary" fontWeight="bold">
+                             総評:
+                           </Typography>
+                           <Typography variant="body2">
+                             {gradingResult.overall_comment}
+                           </Typography>
+                        </Paper>
+                      </>
+                    ) : (
+                      <Box textAlign="center" py={5} color="text.secondary">
+                        <Typography>記述データがありません</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {/* Tab 1: クイズ詳細 */}
+                {tabIndex === 1 && (
+                  <Box p={3}>
+                    <Paper sx={{ p: 2, mb: 3, bgcolor: 'white', borderRadius: 3, textAlign: 'center' }}>
+                       <Typography variant="h6" fontWeight="bold">
+                         正答数: {scores?.quizCorrect ?? '-'} / {scores?.quizTotal ?? '-'} 問
+                       </Typography>
+                    </Paper>
+
+                    <Stack spacing={2}>
+                      {quizResults && quizResults.map((q, i) => (
+                        <Accordion key={i} sx={{ borderRadius: '12px !important', '&:before': {display:'none'}, boxShadow: 1 }}>
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Stack direction="row" alignItems="center" spacing={2} width="100%">
+                              {q.is_correct ? (
+                                <CheckCircle color="success" />
+                              ) : (
+                                <CancelIcon color="error" />
+                              )}
+                              <Box flexGrow={1} overflow="hidden">
+                                <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                                  Q{i+1}. {q.q}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ bgcolor: 'grey.50', borderTop: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>問題:</Typography>
+                            <Typography variant="body2" mb={2}>{q.q}</Typography>
+                            
+                            <Typography variant="subtitle2" fontWeight="bold" gutterBottom color="primary">解説:</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {q.exp || "解説がありません"}
+                            </Typography>
+                          </AccordionDetails>
+                        </Accordion>
+                      ))}
+                      {(!quizResults || quizResults.length === 0) && (
+                          <Typography textAlign="center" color="text.secondary">クイズ履歴がありません</Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                )}
+
+                {/* Tab 2: 講義ノート */}
+                {tabIndex === 2 && (
+                  <Box p={3}>
+                    <Paper sx={{ p: 4, borderRadius: 3, bgcolor: 'white', minHeight: 300 }}>
+                      <SafeMarkdown content={lecture || "講義データがありません"} />
+                    </Paper>
+                  </Box>
+                )}
+
+              </DialogContent>
+            </>
+          );
+        })()}
       </Dialog>
     </Container>
   );

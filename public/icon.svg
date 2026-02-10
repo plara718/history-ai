@@ -8,6 +8,7 @@
     </linearGradient>
   </defs>
 
+
   <rect x="32" y="32" width="448" height="448" rx="112" ry="112" fill="url(#indigo-grad)" />
   <rect x="32" y="32" width="448" height="448" rx="112" ry="112" fill="url(#overlay-glow)" />
 
